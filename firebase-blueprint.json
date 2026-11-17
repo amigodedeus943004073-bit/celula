@@ -1,0 +1,510 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Perfil autenticado do usuário vinculado à sua célula ativa.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "photoUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "activeCellId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "CellWorkspace": {
+      "title": "CellWorkspace",
+      "description": "Configuração da célula, código de acesso por nome e listas de controle de acesso.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "meetingDay": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 30
+        },
+        "meetingTime": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "maxLength": 10
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "accessCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 20,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerEmail": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "allowedEmails": {
+          "type": "array"
+        },
+        "trainerEmails": {
+          "type": "array"
+        },
+        "secretaryEmails": {
+          "type": "array"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["name", "meetingDay", "meetingTime", "accessCode", "ownerUid", "ownerEmail", "allowedEmails", "trainerEmails", "createdAt", "updatedAt"]
+    },
+    "CellLookup": {
+      "title": "CellLookup",
+      "description": "Índice não-PII por código da célula para validar pré-cadastro por nome.",
+      "type": "object",
+      "properties": {
+        "cellId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "cellName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "accessCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 20,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "memberRoster": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["cellId", "cellName", "accessCode", "ownerUid", "memberRoster", "updatedAt"]
+    },
+    "MemberAccessCode": {
+      "title": "MemberAccessCode",
+      "description": "Código individual gerado ao criar a ficha do membro para acesso somente leitura.",
+      "type": "object",
+      "properties": {
+        "memberCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 20,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "memberId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "cellId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "cellName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "accessCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 20,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["memberCode", "memberId", "fullName", "cellId", "cellName", "accessCode", "ownerUid", "updatedAt"]
+    },
+    "MemberSession": {
+      "title": "MemberSession",
+      "description": "Sessão vinculada de membro autenticado por código e nome (somente leitura).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "cellId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "accessCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 20,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "memberId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "cellId", "accessCode", "memberId", "fullName", "createdAt", "updatedAt"]
+    },
+    "CellMember": {
+      "title": "CellMember",
+      "description": "Registro de membro da célula, cargo no organograma, ala e hierarquia de discipulado.",
+      "type": "object",
+      "properties": {
+        "cellId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "accessCode": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "memberCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 20,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "allowedEmails": {
+          "type": "array"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["lider", "lider_treinamento", "secretario", "anfitriao", "filhinho", "visitante", "membro"]
+        },
+        "wing": {
+          "type": "string",
+          "enum": ["Masculina", "Feminina"]
+        },
+        "mentorId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "menteeIds": {
+          "type": "array"
+        },
+        "activityLevel": {
+          "type": "string",
+          "enum": ["Muito Ativo", "Ativo", "Regular", "Inativo", "Novo Convertido"]
+        },
+        "isChurchMember": {
+          "type": "boolean"
+        },
+        "baptismStatus": {
+          "type": "string",
+          "enum": ["Batizado", "Não Batizado", "Em Preparação"]
+        },
+        "birthMonthDay": {
+          "type": "string",
+          "maxLength": 5
+        },
+        "memberEmail": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "createdBy": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["cellId", "ownerUid", "allowedEmails", "fullName", "role", "wing", "menteeIds", "activityLevel", "isChurchMember", "baptismStatus", "createdBy", "createdAt", "updatedAt"]
+    },
+    "MemberPrivateInfo": {
+      "title": "MemberPrivateInfo",
+      "description": "Dados pessoais (PII) gerenciados pela liderança e visualizados em modo somente leitura pelo próprio membro.",
+      "type": "object",
+      "properties": {
+        "cellId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 250
+        },
+        "birthDate": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "baptismDate": {
+          "type": "string",
+          "maxLength": 10
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["cellId", "ownerUid", "phone", "address", "birthDate", "notes", "updatedAt"]
+    },
+    "MonthlyPlan": {
+      "title": "MonthlyPlan",
+      "description": "Planificação mensal e escalas semanais.",
+      "type": "object",
+      "properties": {
+        "cellId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "accessCode": { "type": "string", "maxLength": 20 },
+        "allowedEmails": { "type": "array" },
+        "date": { "type": "string", "maxLength": 10 },
+        "monthKey": { "type": "string", "maxLength": 7 },
+        "time": { "type": "string", "maxLength": 10 },
+        "lessonTitle": { "type": "string", "maxLength": 160 },
+        "lessonReference": { "type": "string", "maxLength": 160 },
+        "responsibleName": { "type": "string", "maxLength": 120 },
+        "preacherName": { "type": "string", "maxLength": 120 },
+        "worshipName": { "type": "string", "maxLength": 120 },
+        "snackName": { "type": "string", "maxLength": 120 },
+        "icebreakerName": { "type": "string", "maxLength": 120 },
+        "prayerName": { "type": "string", "maxLength": 120 },
+        "location": { "type": "string", "maxLength": 200 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["Planejada", "Realizada", "Cancelada"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cellId", "ownerUid", "allowedEmails", "date", "monthKey", "time", "lessonTitle", "responsibleName", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "MeetingReport": {
+      "title": "MeetingReport",
+      "description": "Frequência e relatórios das reuniões semanais.",
+      "type": "object",
+      "properties": {
+        "cellId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "accessCode": { "type": "string", "maxLength": 20 },
+        "allowedEmails": { "type": "array" },
+        "planId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 10 },
+        "monthKey": { "type": "string", "maxLength": 7 },
+        "lessonTitle": { "type": "string", "maxLength": 160 },
+        "preacherName": { "type": "string", "maxLength": 120 },
+        "presentMemberIds": { "type": "array" },
+        "absentMemberIds": { "type": "array" },
+        "visitorsCount": { "type": "number" },
+        "visitorNames": { "type": "array" },
+        "decisionsCount": { "type": "number" },
+        "summary": { "type": "string", "maxLength": 2500 },
+        "highlights": { "type": "string", "maxLength": 1500 },
+        "prayerRequests": { "type": "string", "maxLength": 1500 },
+        "status": { "type": "string", "enum": ["Rascunho", "Finalizado"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cellId", "ownerUid", "allowedEmails", "date", "monthKey", "lessonTitle", "presentMemberIds", "absentMemberIds", "visitorsCount", "decisionsCount", "summary", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "StudyMaterial": {
+      "title": "StudyMaterial",
+      "description": "Materiais de estudo compartilhados entre membros.",
+      "type": "object",
+      "properties": {
+        "cellId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "accessCode": { "type": "string", "maxLength": 20 },
+        "allowedEmails": { "type": "array" },
+        "title": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "enum": ["Lição da Semana", "Estudo Bíblico", "Devocional", "Treinamento de Líderes", "Discipulado"] },
+        "summary": { "type": "string", "maxLength": 500 },
+        "contentText": { "type": "string", "maxLength": 5000 },
+        "resourceUrl": { "type": "string", "maxLength": 500 },
+        "monthKey": { "type": "string", "maxLength": 7 },
+        "authorName": { "type": "string", "maxLength": 120 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cellId", "ownerUid", "allowedEmails", "title", "category", "contentText", "authorName", "createdBy", "createdAt", "updatedAt"]
+    },
+    "CellNotification": {
+      "title": "CellNotification",
+      "description": "Lembretes e notificações da célula.",
+      "type": "object",
+      "properties": {
+        "cellId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "accessCode": { "type": "string", "maxLength": 20 },
+        "allowedEmails": { "type": "array" },
+        "type": { "type": "string", "enum": ["reuniao_pendente", "relatorio_pendente", "escala_incompleta", "aniversario", "material_novo", "lembrete_manual"] },
+        "title": { "type": "string", "maxLength": 140 },
+        "message": { "type": "string", "maxLength": 500 },
+        "dueDate": { "type": "string", "maxLength": 10 },
+        "readByUids": { "type": "array" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cellId", "ownerUid", "allowedEmails", "type", "title", "message", "dueDate", "readByUids", "createdBy", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Perfis de usuário autenticados."
+    },
+    "/cells/{cellId}": {
+      "schema": { "$ref": "#/entities/CellWorkspace" },
+      "description": "Configuração da célula e controle de acessos."
+    },
+    "/cellLookup/{accessCode}": {
+      "schema": { "$ref": "#/entities/CellLookup" },
+      "description": "Índice de pré-cadastro por nome e código da célula (sem PII)."
+    },
+    "/memberAccessCodes/{memberCode}": {
+      "schema": { "$ref": "#/entities/MemberAccessCode" },
+      "description": "Código individual gerado ao criar a ficha de cadastro de cada membro."
+    },
+    "/memberSessions/{uid}": {
+      "schema": { "$ref": "#/entities/MemberSession" },
+      "description": "Sessão ativa de membro autenticado por código e nome (somente leitura)."
+    },
+    "/members/{memberId}": {
+      "schema": { "$ref": "#/entities/CellMember" },
+      "description": "Membros, cargos do organograma, alas e hierarquia."
+    },
+    "/members/{memberId}/private/info": {
+      "schema": { "$ref": "#/entities/MemberPrivateInfo" },
+      "description": "Informações pessoais (PII) e observações."
+    },
+    "/monthlyPlans/{planId}": {
+      "schema": { "$ref": "#/entities/MonthlyPlan" },
+      "description": "Planificação mensal e escalas."
+    },
+    "/meetingReports/{reportId}": {
+      "schema": { "$ref": "#/entities/MeetingReport" },
+      "description": "Frequência e relatórios semanais."
+    },
+    "/studyMaterials/{materialId}": {
+      "schema": { "$ref": "#/entities/StudyMaterial" },
+      "description": "Materiais de estudo compartilhados."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/CellNotification" },
+      "description": "Lembretes e notificações."
+    }
+  }
+}

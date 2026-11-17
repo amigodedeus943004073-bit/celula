@@ -1,0 +1,8 @@
+{
+  "name": "Célula Viva",
+  "description": "Aplicativo de gestão de célula com planificação mensal e semanal, registro de frequência, relatórios automáticos de progresso, materiais de estudo, lembretes e controle de acesso por nível.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

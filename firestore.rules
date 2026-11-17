@@ -1,0 +1,659 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Global Primitives & Security Helpers
+    // =========================================================================
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAnonymousSession() {
+      return isSignedIn()
+        && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string
+        && request.auth.token.email.size() <= 200;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser()
+        && request.auth.token.email == 'amigodeDeus943004073@gmail.com';
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() > 0
+        && id.size() <= 128
+        && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidAccessCode(code) {
+      return code is string
+        && code.size() >= 6
+        && code.size() <= 20
+        && code.matches('^[A-Z0-9\\-]+$');
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isValidEmailList(list, maxLen) {
+      return list is list
+        && list.size() <= maxLen
+        && (list.size() == 0 || (list[0] is string && list[0].size() <= 200));
+    }
+
+    function isValidIdList(list, maxLen) {
+      return list is list
+        && list.size() <= maxLen
+        && (list.size() == 0 || (list[0] is string && list[0].size() <= 128));
+    }
+
+    function isListAuthorized(data) {
+      return (
+        isVerifiedUser() && (
+          isBootstrappedAdmin()
+          || data.ownerUid == request.auth.uid
+          || request.auth.token.email in data.allowedEmails
+        )
+      ) || (
+        isAnonymousSession()
+        && 'accessCode' in data
+        && isValidAccessCode(data.accessCode)
+      );
+    }
+
+    function hasMemberSession(cellId) {
+      return isAnonymousSession()
+        && exists(/databases/$(database)/documents/memberSessions/$(request.auth.uid))
+        && get(/databases/$(database)/documents/memberSessions/$(request.auth.uid)).data.cellId == cellId;
+    }
+
+    function isMemberSessionSelf(memberId) {
+      return isAnonymousSession()
+        && exists(/databases/$(database)/documents/memberSessions/$(request.auth.uid))
+        && get(/databases/$(database)/documents/memberSessions/$(request.auth.uid)).data.memberId == memberId;
+    }
+
+    function isCellLeader(cellId) {
+      return isVerifiedUser()
+        && isValidId(cellId)
+        && exists(/databases/$(database)/documents/cells/$(cellId))
+        && (
+          get(/databases/$(database)/documents/cells/$(cellId)).data.ownerUid == request.auth.uid
+          || isBootstrappedAdmin()
+        );
+    }
+
+    function isCellTrainer(cellId) {
+      return isVerifiedUser()
+        && isValidId(cellId)
+        && exists(/databases/$(database)/documents/cells/$(cellId))
+        && (request.auth.token.email in get(/databases/$(database)/documents/cells/$(cellId)).data.trainerEmails);
+    }
+
+    function isCellSecretary(cellId) {
+      return isVerifiedUser()
+        && isValidId(cellId)
+        && exists(/databases/$(database)/documents/cells/$(cellId))
+        && ('secretaryEmails' in get(/databases/$(database)/documents/cells/$(cellId)).data)
+        && (request.auth.token.email in get(/databases/$(database)/documents/cells/$(cellId)).data.secretaryEmails);
+    }
+
+    function isCellParticipant(cellId) {
+      return (
+        isVerifiedUser()
+        && isValidId(cellId)
+        && exists(/databases/$(database)/documents/cells/$(cellId))
+        && (
+          isBootstrappedAdmin()
+          || get(/databases/$(database)/documents/cells/$(cellId)).data.ownerUid == request.auth.uid
+          || request.auth.token.email in get(/databases/$(database)/documents/cells/$(cellId)).data.allowedEmails
+        )
+      ) || hasMemberSession(cellId);
+    }
+
+    function cellOwnerUid(cellId) {
+      return get(/databases/$(database)/documents/cells/$(cellId)).data.ownerUid;
+    }
+
+    // =========================================================================
+    // Entity Validation Blueprints (Anti-Update-Gap)
+    // =========================================================================
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoUrl', 'activeCellId', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && isValidString(data.email, 3, 200)
+        && isValidString(data.displayName, 1, 120)
+        && (!('photoUrl' in data) || isValidString(data.photoUrl, 0, 500))
+        && (!('activeCellId' in data) || isValidId(data.activeCellId))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCellWorkspace(data) {
+      return data.keys().hasAll(['name', 'meetingDay', 'meetingTime', 'accessCode', 'ownerUid', 'ownerEmail', 'allowedEmails', 'trainerEmails', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['name', 'description', 'meetingDay', 'meetingTime', 'location', 'accessCode', 'ownerUid', 'ownerEmail', 'allowedEmails', 'trainerEmails', 'secretaryEmails', 'createdAt', 'updatedAt'])
+        && isValidString(data.name, 2, 100)
+        && (!('description' in data) || isValidString(data.description, 0, 500))
+        && isValidString(data.meetingDay, 2, 30)
+        && isValidString(data.meetingTime, 4, 10)
+        && data.meetingTime.matches('^([01]\\d|2[0-3]):[0-5]\\d$')
+        && (!('location' in data) || isValidString(data.location, 0, 200))
+        && isValidAccessCode(data.accessCode)
+        && isValidId(data.ownerUid)
+        && isValidString(data.ownerEmail, 3, 200)
+        && isValidEmailList(data.allowedEmails, 50)
+        && isValidEmailList(data.trainerEmails, 3)
+        && (!('secretaryEmails' in data) || isValidEmailList(data.secretaryEmails, 5))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCellLookup(data) {
+      return data.keys().hasAll(['cellId', 'cellName', 'accessCode', 'ownerUid', 'memberRoster', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'cellName', 'accessCode', 'ownerUid', 'memberRoster', 'updatedAt'])
+        && isValidId(data.cellId)
+        && isValidString(data.cellName, 2, 100)
+        && isValidAccessCode(data.accessCode)
+        && isValidId(data.ownerUid)
+        && data.memberRoster is list
+        && data.memberRoster.size() <= 50
+        && (data.memberRoster.size() == 0 || (data.memberRoster[0] is map && 'id' in data.memberRoster[0] && 'fullName' in data.memberRoster[0]))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMemberAccessCodeDoc(data) {
+      return data.keys().hasAll(['memberCode', 'memberId', 'fullName', 'cellId', 'cellName', 'accessCode', 'ownerUid', 'updatedAt'])
+        && data.keys().hasOnly(['memberCode', 'memberId', 'fullName', 'cellId', 'cellName', 'accessCode', 'ownerUid', 'updatedAt'])
+        && isValidAccessCode(data.memberCode)
+        && isValidId(data.memberId)
+        && isValidString(data.fullName, 2, 120)
+        && isValidId(data.cellId)
+        && isValidString(data.cellName, 2, 100)
+        && isValidAccessCode(data.accessCode)
+        && isValidId(data.ownerUid)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMemberSession(data) {
+      return data.keys().hasAll(['uid', 'cellId', 'accessCode', 'memberId', 'fullName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'cellId', 'accessCode', 'memberId', 'fullName', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && isValidId(data.cellId)
+        && isValidAccessCode(data.accessCode)
+        && isValidId(data.memberId)
+        && isValidString(data.fullName, 2, 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCellMember(data) {
+      return data.keys().hasAll(['cellId', 'ownerUid', 'allowedEmails', 'fullName', 'role', 'wing', 'menteeIds', 'activityLevel', 'isChurchMember', 'baptismStatus', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'memberCode', 'allowedEmails', 'fullName', 'role', 'wing', 'mentorId', 'menteeIds', 'activityLevel', 'isChurchMember', 'baptismStatus', 'birthMonthDay', 'memberEmail', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.cellId)
+        && isValidId(data.ownerUid)
+        && (!('accessCode' in data) || isValidAccessCode(data.accessCode))
+        && (!('memberCode' in data) || data.memberCode == '' || isValidAccessCode(data.memberCode))
+        && isValidEmailList(data.allowedEmails, 50)
+        && isValidString(data.fullName, 2, 120)
+        && data.role in ['lider', 'lider_treinamento', 'secretario', 'anfitriao', 'filhinho', 'visitante', 'membro']
+        && data.wing in ['Masculina', 'Feminina']
+        && (!('mentorId' in data) || data.mentorId == '' || isValidId(data.mentorId))
+        && isValidIdList(data.menteeIds, 3)
+        && data.activityLevel in ['Muito Ativo', 'Ativo', 'Regular', 'Inativo', 'Novo Convertido']
+        && data.isChurchMember is bool
+        && data.baptismStatus in ['Batizado', 'Não Batizado', 'Em Preparação']
+        && (!('birthMonthDay' in data) || data.birthMonthDay == '' || (data.birthMonthDay is string && data.birthMonthDay.size() == 5 && data.birthMonthDay.matches('^(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$')))
+        && (!('memberEmail' in data) || isValidString(data.memberEmail, 0, 200))
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMemberPrivateInfo(data) {
+      return data.keys().hasAll(['cellId', 'ownerUid', 'phone', 'address', 'birthDate', 'notes', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'email', 'phone', 'address', 'birthDate', 'baptismDate', 'notes', 'updatedAt'])
+        && isValidId(data.cellId)
+        && isValidId(data.ownerUid)
+        && (!('email' in data) || isValidString(data.email, 0, 200))
+        && isValidString(data.phone, 0, 40)
+        && isValidString(data.address, 0, 250)
+        && (data.birthDate == '' || (isValidString(data.birthDate, 10, 10) && data.birthDate.matches('^\\d{4}-\\d{2}-\\d{2}$')))
+        && (!('baptismDate' in data) || data.baptismDate == '' || (isValidString(data.baptismDate, 10, 10) && data.baptismDate.matches('^\\d{4}-\\d{2}-\\d{2}$')))
+        && isValidString(data.notes, 0, 2000)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMonthlyPlan(data) {
+      return data.keys().hasAll(['cellId', 'ownerUid', 'allowedEmails', 'date', 'monthKey', 'time', 'lessonTitle', 'responsibleName', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'date', 'monthKey', 'time', 'lessonTitle', 'lessonReference', 'responsibleName', 'preacherName', 'worshipName', 'snackName', 'icebreakerName', 'prayerName', 'location', 'notes', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.cellId)
+        && isValidId(data.ownerUid)
+        && (!('accessCode' in data) || isValidAccessCode(data.accessCode))
+        && isValidEmailList(data.allowedEmails, 50)
+        && isValidString(data.date, 10, 10)
+        && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && isValidString(data.monthKey, 7, 7)
+        && data.monthKey.matches('^\\d{4}-\\d{2}$')
+        && isValidString(data.time, 4, 10)
+        && data.time.matches('^([01]\\d|2[0-3]):[0-5]\\d$')
+        && isValidString(data.lessonTitle, 2, 160)
+        && (!('lessonReference' in data) || isValidString(data.lessonReference, 0, 160))
+        && isValidString(data.responsibleName, 1, 120)
+        && (!('preacherName' in data) || isValidString(data.preacherName, 0, 120))
+        && (!('worshipName' in data) || isValidString(data.worshipName, 0, 120))
+        && (!('snackName' in data) || isValidString(data.snackName, 0, 120))
+        && (!('icebreakerName' in data) || isValidString(data.icebreakerName, 0, 120))
+        && (!('prayerName' in data) || isValidString(data.prayerName, 0, 120))
+        && (!('location' in data) || isValidString(data.location, 0, 200))
+        && (!('notes' in data) || isValidString(data.notes, 0, 1000))
+        && data.status in ['Planejada', 'Realizada', 'Cancelada']
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMeetingReport(data) {
+      return data.keys().hasAll(['cellId', 'ownerUid', 'allowedEmails', 'date', 'monthKey', 'lessonTitle', 'presentMemberIds', 'absentMemberIds', 'visitorsCount', 'decisionsCount', 'summary', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'planId', 'date', 'monthKey', 'lessonTitle', 'preacherName', 'presentMemberIds', 'absentMemberIds', 'visitorsCount', 'visitorNames', 'decisionsCount', 'summary', 'highlights', 'prayerRequests', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.cellId)
+        && isValidId(data.ownerUid)
+        && (!('accessCode' in data) || isValidAccessCode(data.accessCode))
+        && isValidEmailList(data.allowedEmails, 50)
+        && (!('planId' in data) || data.planId == '' || isValidId(data.planId))
+        && isValidString(data.date, 10, 10)
+        && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && isValidString(data.monthKey, 7, 7)
+        && data.monthKey.matches('^\\d{4}-\\d{2}$')
+        && isValidString(data.lessonTitle, 2, 160)
+        && (!('preacherName' in data) || isValidString(data.preacherName, 0, 120))
+        && isValidIdList(data.presentMemberIds, 50)
+        && isValidIdList(data.absentMemberIds, 50)
+        && data.visitorsCount is int && data.visitorsCount >= 0 && data.visitorsCount <= 200
+        && (!('visitorNames' in data) || (data.visitorNames is list && data.visitorNames.size() <= 30 && (data.visitorNames.size() == 0 || (data.visitorNames[0] is string && data.visitorNames[0].size() <= 120))))
+        && data.decisionsCount is int && data.decisionsCount >= 0 && data.decisionsCount <= 200
+        && isValidString(data.summary, 3, 2500)
+        && (!('highlights' in data) || isValidString(data.highlights, 0, 1500))
+        && (!('prayerRequests' in data) || isValidString(data.prayerRequests, 0, 1500))
+        && data.status in ['Rascunho', 'Finalizado']
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStudyMaterial(data) {
+      return data.keys().hasAll(['cellId', 'ownerUid', 'allowedEmails', 'title', 'category', 'contentText', 'authorName', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'title', 'category', 'summary', 'contentText', 'resourceUrl', 'monthKey', 'authorName', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.cellId)
+        && isValidId(data.ownerUid)
+        && (!('accessCode' in data) || isValidAccessCode(data.accessCode))
+        && isValidEmailList(data.allowedEmails, 50)
+        && isValidString(data.title, 2, 160)
+        && data.category in ['Lição da Semana', 'Estudo Bíblico', 'Devocional', 'Treinamento de Líderes', 'Discipulado']
+        && (!('summary' in data) || isValidString(data.summary, 0, 500))
+        && isValidString(data.contentText, 5, 5000)
+        && (!('resourceUrl' in data) || isValidString(data.resourceUrl, 0, 500))
+        && (!('monthKey' in data) || data.monthKey == '' || (isValidString(data.monthKey, 7, 7) && data.monthKey.matches('^\\d{4}-\\d{2}$')))
+        && isValidString(data.authorName, 2, 120)
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['cellId', 'ownerUid', 'allowedEmails', 'type', 'title', 'message', 'dueDate', 'readByUids', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'type', 'title', 'message', 'dueDate', 'readByUids', 'createdBy', 'createdAt', 'updatedAt'])
+        && isValidId(data.cellId)
+        && isValidId(data.ownerUid)
+        && (!('accessCode' in data) || isValidAccessCode(data.accessCode))
+        && isValidEmailList(data.allowedEmails, 50)
+        && data.type in ['reuniao_pendente', 'relatorio_pendente', 'escala_incompleta', 'aniversario', 'material_novo', 'lembrete_manual']
+        && isValidString(data.title, 2, 140)
+        && isValidString(data.message, 2, 500)
+        && isValidString(data.dueDate, 10, 10)
+        && data.dueDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && isValidIdList(data.readByUids, 50)
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // Collection Match Blocks
+    // =========================================================================
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isBootstrappedAdmin());
+      allow list: if isVerifiedUser() && (isBootstrappedAdmin() || existing().uid == request.auth.uid);
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().email == request.auth.token.email
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoUrl', 'activeCellId', 'updatedAt']);
+      allow delete: if isValidId(userId) && (isOwner(userId) || isBootstrappedAdmin());
+    }
+
+    match /cellLookup/{accessCode} {
+      allow get: if isValidAccessCode(accessCode) && isSignedIn();
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidAccessCode(accessCode)
+        && isValidCellLookup(incoming())
+        && incoming().accessCode == accessCode
+        && isCellLeader(incoming().cellId)
+        && incoming().ownerUid == cellOwnerUid(incoming().cellId)
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidAccessCode(accessCode)
+        && isValidCellLookup(incoming())
+        && incoming().accessCode == accessCode
+        && incoming().cellId == existing().cellId
+        && incoming().ownerUid == existing().ownerUid
+        && (isCellLeader(existing().cellId) || isCellTrainer(existing().cellId))
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['cellName', 'memberRoster', 'updatedAt']);
+      allow delete: if isVerifiedUser()
+        && isValidAccessCode(accessCode)
+        && isCellLeader(existing().cellId);
+    }
+
+    match /memberAccessCodes/{memberCode} {
+      allow get: if isValidAccessCode(memberCode) && isSignedIn();
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidAccessCode(memberCode)
+        && isValidMemberAccessCodeDoc(incoming())
+        && incoming().memberCode == memberCode
+        && (isCellLeader(incoming().cellId) || isCellTrainer(incoming().cellId))
+        && incoming().ownerUid == cellOwnerUid(incoming().cellId)
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidAccessCode(memberCode)
+        && isValidMemberAccessCodeDoc(incoming())
+        && incoming().memberCode == memberCode
+        && incoming().cellId == existing().cellId
+        && incoming().memberId == existing().memberId
+        && incoming().ownerUid == existing().ownerUid
+        && (isCellLeader(existing().cellId) || isCellTrainer(existing().cellId))
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'cellName', 'accessCode', 'updatedAt']);
+      allow delete: if isValidAccessCode(memberCode)
+        && isVerifiedUser()
+        && isCellLeader(existing().cellId);
+    }
+
+    match /memberSessions/{uid} {
+      allow get: if isValidId(uid) && isSignedIn() && request.auth.uid == uid;
+      allow list: if false;
+      allow create: if isValidId(uid)
+        && isAnonymousSession()
+        && request.auth.uid == uid
+        && isValidMemberSession(incoming())
+        && incoming().uid == uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/cellLookup/$(incoming().accessCode))
+        && get(/databases/$(database)/documents/cellLookup/$(incoming().accessCode)).data.cellId == incoming().cellId;
+      allow update: if isValidId(uid)
+        && isAnonymousSession()
+        && request.auth.uid == uid
+        && isValidMemberSession(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/cellLookup/$(incoming().accessCode))
+        && get(/databases/$(database)/documents/cellLookup/$(incoming().accessCode)).data.cellId == incoming().cellId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['cellId', 'accessCode', 'memberId', 'fullName', 'updatedAt']);
+      allow delete: if isValidId(uid) && isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /cells/{cellId} {
+      allow get: if isValidId(cellId) && (isListAuthorized(existing()) || hasMemberSession(cellId));
+      allow list: if isListAuthorized(existing());
+      allow create: if isVerifiedUser()
+        && isValidId(cellId)
+        && isValidCellWorkspace(incoming())
+        && incoming().ownerUid == request.auth.uid
+        && incoming().ownerEmail == request.auth.token.email
+        && request.auth.token.email in incoming().allowedEmails
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(cellId)
+        && isValidCellWorkspace(incoming())
+        && (existing().ownerUid == request.auth.uid || isBootstrappedAdmin())
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().ownerEmail == existing().ownerEmail
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'meetingDay', 'meetingTime', 'location', 'accessCode', 'allowedEmails', 'trainerEmails', 'secretaryEmails', 'updatedAt']);
+      allow delete: if isValidId(cellId)
+        && isVerifiedUser()
+        && (existing().ownerUid == request.auth.uid || isBootstrappedAdmin());
+    }
+
+    match /members/{memberId} {
+      allow get: if isValidId(memberId) && (isListAuthorized(existing()) || hasMemberSession(existing().cellId));
+      allow list: if isListAuthorized(existing());
+      allow create: if isVerifiedUser()
+        && isValidId(memberId)
+        && isValidCellMember(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isCellLeader(incoming().cellId)
+          || (isCellTrainer(incoming().cellId) && incoming().role in ['filhinho', 'visitante', 'membro'])
+        )
+        && incoming().ownerUid == cellOwnerUid(incoming().cellId);
+      allow update: if isValidId(memberId)
+        && isVerifiedUser()
+        && isValidCellMember(incoming())
+        && incoming().cellId == existing().cellId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'memberCode', 'allowedEmails', 'fullName', 'role', 'wing', 'mentorId', 'menteeIds', 'activityLevel', 'isChurchMember', 'baptismStatus', 'birthMonthDay', 'memberEmail', 'updatedAt']))
+          || (isCellTrainer(existing().cellId) && existing().role in ['filhinho', 'visitante', 'membro'] && incoming().role in ['filhinho', 'visitante', 'membro'] && incoming().diff(existing()).affectedKeys().hasOnly(['memberCode', 'fullName', 'wing', 'mentorId', 'activityLevel', 'isChurchMember', 'baptismStatus', 'birthMonthDay', 'updatedAt']))
+          || (isCellTrainer(existing().cellId) && 'memberEmail' in existing() && existing().memberEmail == request.auth.token.email && incoming().diff(existing()).affectedKeys().hasOnly(['menteeIds', 'updatedAt']))
+        );
+      allow delete: if isValidId(memberId)
+        && isVerifiedUser()
+        && isCellLeader(existing().cellId);
+
+      match /private/{docId} {
+        allow get: if isValidId(memberId)
+          && docId == 'info'
+          && isSignedIn()
+          && (
+            isCellLeader(existing().cellId)
+            || isCellTrainer(existing().cellId)
+            || isCellSecretary(existing().cellId)
+            || isMemberSessionSelf(memberId)
+            || (isVerifiedUser() && 'email' in existing() && existing().email == request.auth.token.email)
+          );
+        allow list: if false;
+        allow create: if isValidId(memberId)
+          && docId == 'info'
+          && isVerifiedUser()
+          && isValidMemberPrivateInfo(incoming())
+          && exists(/databases/$(database)/documents/members/$(memberId))
+          && incoming().updatedAt == request.time
+          && incoming().ownerUid == cellOwnerUid(incoming().cellId)
+          && (
+            isCellLeader(incoming().cellId)
+            || (isCellTrainer(incoming().cellId) && get(/databases/$(database)/documents/members/$(memberId)).data.role in ['filhinho', 'visitante', 'membro'])
+          );
+        allow update: if isValidId(memberId)
+          && docId == 'info'
+          && isVerifiedUser()
+          && isValidMemberPrivateInfo(incoming())
+          && incoming().cellId == existing().cellId
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().updatedAt == request.time
+          && (
+            (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phone', 'address', 'birthDate', 'baptismDate', 'notes', 'updatedAt']))
+            || (isCellTrainer(existing().cellId) && get(/databases/$(database)/documents/members/$(memberId)).data.role in ['filhinho', 'visitante', 'membro'] && incoming().diff(existing()).affectedKeys().hasOnly(['phone', 'address', 'birthDate', 'baptismDate', 'notes', 'updatedAt']))
+          );
+        allow delete: if isValidId(memberId)
+          && docId == 'info'
+          && isVerifiedUser()
+          && isCellLeader(existing().cellId);
+      }
+    }
+
+    match /monthlyPlans/{planId} {
+      allow get: if isValidId(planId) && (isListAuthorized(existing()) || hasMemberSession(existing().cellId));
+      allow list: if isListAuthorized(existing());
+      allow create: if isVerifiedUser()
+        && isValidId(planId)
+        && isValidMonthlyPlan(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (isCellLeader(incoming().cellId) || isCellTrainer(incoming().cellId) || isCellSecretary(incoming().cellId))
+        && incoming().ownerUid == cellOwnerUid(incoming().cellId);
+      allow update: if isVerifiedUser()
+        && isValidId(planId)
+        && isValidMonthlyPlan(incoming())
+        && incoming().cellId == existing().cellId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'allowedEmails', 'date', 'monthKey', 'time', 'lessonTitle', 'lessonReference', 'responsibleName', 'preacherName', 'worshipName', 'snackName', 'icebreakerName', 'prayerName', 'location', 'notes', 'status', 'updatedAt']))
+          || ((isCellTrainer(existing().cellId) || isCellSecretary(existing().cellId)) && incoming().diff(existing()).affectedKeys().hasOnly(['time', 'lessonTitle', 'lessonReference', 'responsibleName', 'preacherName', 'worshipName', 'snackName', 'icebreakerName', 'prayerName', 'location', 'notes', 'status', 'updatedAt']))
+        );
+      allow delete: if isValidId(planId)
+        && isVerifiedUser()
+        && isCellLeader(existing().cellId);
+    }
+
+    match /meetingReports/{reportId} {
+      allow get: if isValidId(reportId) && (isListAuthorized(existing()) || hasMemberSession(existing().cellId));
+      allow list: if isListAuthorized(existing());
+      allow create: if isVerifiedUser()
+        && isValidId(reportId)
+        && isValidMeetingReport(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (isCellLeader(incoming().cellId) || isCellTrainer(incoming().cellId) || isCellSecretary(incoming().cellId))
+        && incoming().ownerUid == cellOwnerUid(incoming().cellId);
+      allow update: if isVerifiedUser()
+        && isValidId(reportId)
+        && isValidMeetingReport(incoming())
+        && incoming().cellId == existing().cellId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'allowedEmails', 'planId', 'date', 'monthKey', 'lessonTitle', 'preacherName', 'presentMemberIds', 'absentMemberIds', 'visitorsCount', 'visitorNames', 'decisionsCount', 'summary', 'highlights', 'prayerRequests', 'status', 'updatedAt']))
+          || ((isCellTrainer(existing().cellId) || isCellSecretary(existing().cellId)) && existing().status != 'Finalizado' && incoming().diff(existing()).affectedKeys().hasOnly(['lessonTitle', 'preacherName', 'presentMemberIds', 'absentMemberIds', 'visitorsCount', 'visitorNames', 'decisionsCount', 'summary', 'highlights', 'prayerRequests', 'status', 'updatedAt']))
+        );
+      allow delete: if isValidId(reportId)
+        && isVerifiedUser()
+        && isCellLeader(existing().cellId);
+    }
+
+    match /studyMaterials/{materialId} {
+      allow get: if isValidId(materialId) && (isListAuthorized(existing()) || hasMemberSession(existing().cellId));
+      allow list: if isListAuthorized(existing());
+      allow create: if isVerifiedUser()
+        && isValidId(materialId)
+        && isValidStudyMaterial(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (isCellLeader(incoming().cellId) || isCellTrainer(incoming().cellId))
+        && incoming().ownerUid == cellOwnerUid(incoming().cellId);
+      allow update: if isVerifiedUser()
+        && isValidId(materialId)
+        && isValidStudyMaterial(incoming())
+        && incoming().cellId == existing().cellId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'allowedEmails', 'title', 'category', 'summary', 'contentText', 'resourceUrl', 'monthKey', 'authorName', 'updatedAt']))
+          || (isCellTrainer(existing().cellId) && existing().createdBy == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'summary', 'contentText', 'resourceUrl', 'monthKey', 'updatedAt']))
+        );
+      allow delete: if isValidId(materialId)
+        && isVerifiedUser()
+        && (
+          isCellLeader(existing().cellId)
+          || (isCellTrainer(existing().cellId) && existing().createdBy == request.auth.uid)
+        );
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && (isListAuthorized(existing()) || hasMemberSession(existing().cellId));
+      allow list: if isListAuthorized(existing());
+      allow create: if isVerifiedUser()
+        && isValidId(notificationId)
+        && isValidNotification(incoming())
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (isCellLeader(incoming().cellId) || isCellTrainer(incoming().cellId) || isCellSecretary(incoming().cellId))
+        && incoming().ownerUid == cellOwnerUid(incoming().cellId);
+      allow update: if isValidId(notificationId)
+        && isVerifiedUser()
+        && isValidNotification(incoming())
+        && incoming().cellId == existing().cellId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'allowedEmails', 'type', 'title', 'message', 'dueDate', 'readByUids', 'updatedAt']))
+          || ((isCellTrainer(existing().cellId) || isCellSecretary(existing().cellId)) && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'title', 'message', 'dueDate', 'readByUids', 'updatedAt']))
+        );
+      allow delete: if isValidId(notificationId)
+        && isVerifiedUser()
+        && isCellLeader(existing().cellId);
+    }
+  }
+}
