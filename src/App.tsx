@@ -8,9 +8,19 @@ import {
   query,
   where,
 } from 'firebase/firestore';
-import { Bell, CalendarRange, Menu, UserCheck, X } from 'lucide-react';
+import {
+  Bell,
+  CalendarRange,
+  ClipboardCheck,
+  Menu,
+  MessageCircle,
+  UserCheck,
+  UserRoundPen,
+  X,
+} from 'lucide-react';
 import { AttendanceReportsView } from './components/AttendanceReportsView';
 import { AuthGate } from './components/AuthGate';
+import { CellChatView } from './components/CellChatView';
 import { CellSetupModal } from './components/CellSetupModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MembersAccessView } from './components/MembersAccessView';
@@ -30,7 +40,6 @@ import {
   createCellWorkspace,
   ensureCellAccessCodeBackfill,
   ensureUserProfile,
-  normalizeName,
   updateCellSettings,
 } from './lib/cellService';
 import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
@@ -38,6 +47,7 @@ import {
   getRolePermissions,
   ROLE_LABELS,
   type CellMember,
+  type CellMessage,
   type CellNotification,
   type CellRole,
   type CellWorkspace,
@@ -49,6 +59,7 @@ import {
 
 const SECTION_TITLES: Record<NavSection, string> = {
   overview: 'Visão Geral & Lembretes',
+  chat: 'Bate-Papo da Célula',
   ficha: 'Minha Ficha',
   organogram: 'Organograma da Célula',
   planning: 'Planificação & Progresso',
@@ -67,13 +78,14 @@ function CellManagementWorkspace() {
   const [activeCellId, setActiveCellId] = useState<string>('');
 
   const [memberSession, setMemberSession] = useState<MemberSession | null>(null);
-  const [sessionMissing, setSessionMissing] = useState(false);
 
   const [allMembers, setAllMembers] = useState<CellMember[]>([]);
   const [allPlans, setAllPlans] = useState<MonthlyPlan[]>([]);
   const [allReports, setAllReports] = useState<MeetingReport[]>([]);
   const [allMaterials, setAllMaterials] = useState<StudyMaterial[]>([]);
   const [allNotifications, setAllNotifications] = useState<CellNotification[]>([]);
+  const [allMessages, setAllMessages] = useState<CellMessage[]>([]);
+  const [lastSeenChatMs, setLastSeenChatMs] = useState<number>(() => Date.now());
 
   const [activeSection, setActiveSection] = useState<NavSection>('overview');
   const [planningTab, setPlanningTab] = useState<'mes' | 'semana' | 'progresso'>('mes');
@@ -96,10 +108,19 @@ function CellManagementWorkspace() {
   // 1. Auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (nextUser) => {
+      if (nextUser?.isAnonymous) {
+        try {
+          const snap = await getDoc(doc(db, 'memberSessions', nextUser.uid));
+          setMemberSession(snap.exists() ? (snap.data() as MemberSession) : null);
+        } catch {
+          setMemberSession(null);
+        }
+      } else {
+        setMemberSession(null);
+      }
+
       setUser(nextUser);
       setAuthReady(true);
-      setMemberSession(null);
-      setSessionMissing(false);
       setNameSwitchMemberId(null);
       setPreviewRole(null);
 
@@ -117,6 +138,7 @@ function CellManagementWorkspace() {
         setAllReports([]);
         setAllMaterials([]);
         setAllNotifications([]);
+        setAllMessages([]);
       }
     });
     return () => unsub();
@@ -131,10 +153,8 @@ function CellManagementWorkspace() {
       (snap) => {
         if (snap.exists()) {
           setMemberSession(snap.data() as MemberSession);
-          setSessionMissing(false);
         } else {
           setMemberSession(null);
-          setSessionMissing(true);
         }
       },
       (error) =>
@@ -252,6 +272,20 @@ function CellManagementWorkspace() {
         handleFirestoreError(error, OperationType.LIST, 'notifications'),
     );
 
+    const unsubMessages = onSnapshot(
+      query(collection(db, 'cellMessages'), where('accessCode', '==', code)),
+      (snap) => {
+        setAllMessages(
+          snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<CellMessage, 'id'>),
+          })),
+        );
+      },
+      (error) =>
+        handleFirestoreError(error, OperationType.LIST, 'cellMessages'),
+    );
+
     return () => {
       cancelled = true;
       unsubMembers();
@@ -259,13 +293,14 @@ function CellManagementWorkspace() {
       unsubReports();
       unsubMaterials();
       unsubNotifs();
+      unsubMessages();
     };
   }, [authReady, user, memberSession]);
 
   // 2C. Google-authenticated user real-time listeners (single-field array-contains query)
   useEffect(() => {
     if (!authReady || !user || user.isAnonymous || !user.email) return;
-    const userEmail = user.email;
+    const userEmail = user.email.trim().toLowerCase();
 
     const unsubCells = onSnapshot(
       query(
@@ -371,6 +406,23 @@ function CellManagementWorkspace() {
         handleFirestoreError(error, OperationType.LIST, 'notifications'),
     );
 
+    const unsubMessages = onSnapshot(
+      query(
+        collection(db, 'cellMessages'),
+        where('allowedEmails', 'array-contains', userEmail),
+      ),
+      (snap) => {
+        setAllMessages(
+          snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<CellMessage, 'id'>),
+          })),
+        );
+      },
+      (error) =>
+        handleFirestoreError(error, OperationType.LIST, 'cellMessages'),
+    );
+
     return () => {
       unsubCells();
       unsubMembers();
@@ -378,6 +430,7 @@ function CellManagementWorkspace() {
       unsubReports();
       unsubMaterials();
       unsubNotifs();
+      unsubMessages();
     };
   }, [authReady, user]);
 
@@ -406,6 +459,10 @@ function CellManagementWorkspace() {
     () => allNotifications.filter((n) => n.cellId === activeCell?.id),
     [allNotifications, activeCell?.id],
   );
+  const messages = useMemo(
+    () => allMessages.filter((m) => m.cellId === activeCell?.id),
+    [allMessages, activeCell?.id],
+  );
 
   const isRemoteNameSession = Boolean(user?.isAnonymous);
   const isLocalNameSwitch = Boolean(!isRemoteNameSession && nameSwitchMemberId);
@@ -422,7 +479,7 @@ function CellManagementWorkspace() {
     const email = user.email || '';
     if (
       activeCell.ownerUid === user.uid ||
-      email === 'amigodeDeus943004073@gmail.com'
+      email.toLowerCase() === 'amigodedeus943004073@gmail.com'
     ) {
       return 'lider';
     }
@@ -438,7 +495,7 @@ function CellManagementWorkspace() {
     return matched?.role || 'membro';
   }, [user, activeCell, members, memberSession]);
 
-  // Backfill accessCode, cellLookup, and individual memberCodes for existing workspaces
+  // Backfill accessCode, cellLookup, and individual memberCodes across all collections
   useEffect(() => {
     if (
       !user ||
@@ -449,16 +506,43 @@ function CellManagementWorkspace() {
     ) {
       return;
     }
+    const cellAllowed = activeCell.allowedEmails.map((e) =>
+      e.trim().toLowerCase(),
+    );
+    const hasSyncGap = (docs: Array<{ allowedEmails?: string[] }>) =>
+      docs.some((d) => {
+        const list = (d.allowedEmails || []).map((e) => e.trim().toLowerCase());
+        return cellAllowed.some((e) => !list.includes(e));
+      });
     const needsBackfill =
       !activeCell.accessCode ||
-      members.some((m) => !m.memberCode) ||
+      members.some((m) => !m.memberCode || !m.accessCode || !m.wing) ||
+      plans.some((p) => !p.accessCode) ||
+      reports.some((r) => !r.accessCode) ||
+      materials.some((m) => !m.accessCode) ||
+      notifications.some((n) => !n.accessCode) ||
+      hasSyncGap(members) ||
+      hasSyncGap(plans) ||
+      hasSyncGap(reports) ||
+      hasSyncGap(materials) ||
+      hasSyncGap(notifications) ||
       !backfilledCellIdsRef.current.has(activeCell.id);
     if (!needsBackfill) return;
     backfilledCellIdsRef.current.add(activeCell.id);
     ensureCellAccessCodeBackfill(activeCell, members).catch((err) => {
       console.warn('Backfill de código de acesso pendente:', err);
     });
-  }, [user, activeCell, members, membersLoaded, actualRole]);
+  }, [
+    user,
+    activeCell,
+    members,
+    plans,
+    reports,
+    materials,
+    notifications,
+    membersLoaded,
+    actualRole,
+  ]);
 
   const currentMember: CellMember | null = useMemo(() => {
     if (isRemoteNameSession && memberSession) {
@@ -533,6 +617,21 @@ function CellManagementWorkspace() {
     return autoAlerts.length + unreadNotifs;
   }, [autoAlerts.length, notifications, user]);
 
+  useEffect(() => {
+    if (activeSection === 'chat') {
+      setLastSeenChatMs(Date.now());
+    }
+  }, [activeSection, messages.length]);
+
+  const unreadChatCount = useMemo(() => {
+    if (activeSection === 'chat' || !user) return 0;
+    return messages.filter((m) => {
+      if (m.senderUid === user.uid) return false;
+      const ms = m.createdAt?.toMillis ? m.createdAt.toMillis() : 0;
+      return ms > lastSeenChatMs;
+    }).length;
+  }, [activeSection, messages, user, lastSeenChatMs]);
+
   if (!authReady) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
@@ -543,11 +642,7 @@ function CellManagementWorkspace() {
     );
   }
 
-  if (!user) {
-    return <AuthGate />;
-  }
-
-  if (user.isAnonymous && sessionMissing && !memberSession) {
+  if (!user || (user.isAnonymous && !memberSession)) {
     return <AuthGate />;
   }
 
@@ -591,21 +686,19 @@ function CellManagementWorkspace() {
 
   const handleConfirmNameSwitch = (e: React.FormEvent) => {
     e.preventDefault();
-    const raw = nameSwitchInput.trim();
-    const targetCode = raw.toUpperCase();
-    const targetName = normalizeName(raw);
-    if (raw.length < 2) {
-      setNameSwitchError('Informe o código da ficha ou o nome completo cadastrado.');
+    const targetCode = nameSwitchInput.trim().toUpperCase();
+    if (targetCode.length < 6) {
+      setNameSwitchError(
+        'Informe o código individual gerado na ficha (ex.: MARI-4821).',
+      );
       return;
     }
     const matched = members.find(
-      (m) =>
-        (m.memberCode && m.memberCode.toUpperCase() === targetCode) ||
-        normalizeName(m.fullName) === targetName,
+      (m) => m.memberCode && m.memberCode.toUpperCase() === targetCode,
     );
     if (!matched) {
       setNameSwitchError(
-        'Código ou nome não encontrado nesta célula. Crie a ficha em Membros & Acessos primeiro.',
+        'Código de ficha não encontrado nesta célula. Crie a ficha primeiro para gerar o código.',
       );
       return;
     }
@@ -623,7 +716,7 @@ function CellManagementWorkspace() {
       : memberSession?.fullName || user.displayName || 'Usuário';
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex overflow-x-hidden">
       <Sidebar
         activeSection={activeSection}
         onSelectSection={setActiveSection}
@@ -637,6 +730,7 @@ function CellManagementWorkspace() {
         effectiveRole={effectiveRole}
         actualRole={actualRole}
         unreadAlertsCount={unreadAlertsCount}
+        unreadChatCount={unreadChatCount}
         userEmail={isNameSession ? '' : user.email || ''}
         userName={displayUserName}
         memberCode={isNameSession ? currentMember?.memberCode : undefined}
@@ -657,19 +751,21 @@ function CellManagementWorkspace() {
 
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top Workspace Header */}
-        <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4 sticky top-0 z-30">
-          <div className="flex items-center gap-3 min-w-0">
+        <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-3.5 sm:px-8 h-13 sm:h-14 flex items-center justify-between gap-3 sticky top-0 z-30">
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
               aria-label="Abrir menu"
-              className="lg:hidden p-2 -ml-2 text-slate-600 hover:text-slate-900 rounded-lg cursor-pointer"
+              className="lg:hidden min-h-[40px] min-w-[40px] -ml-1.5 flex items-center justify-center text-slate-600 hover:text-slate-900 rounded-lg cursor-pointer shrink-0"
             >
               <Menu className="w-5 h-5" />
             </button>
             <div className="text-xs sm:text-sm text-slate-500 truncate">
-              <span>{activeCell?.name || 'Célula Viva'}</span>
-              <span className="mx-2" aria-hidden="true">
+              <span className="hidden sm:inline">
+                {activeCell?.name || 'Célula Viva'}
+              </span>
+              <span className="hidden sm:inline mx-2" aria-hidden="true">
                 /
               </span>
               <span className="font-semibold text-slate-900">
@@ -678,29 +774,29 @@ function CellManagementWorkspace() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {isLocalNameSwitch && currentMember && (
               <button
                 type="button"
                 onClick={() => setNameSwitchMemberId(null)}
-                className="px-3 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg cursor-pointer whitespace-nowrap"
+                className="px-2.5 py-1.5 text-[11px] sm:text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 hover:bg-amber-100 rounded-lg cursor-pointer whitespace-nowrap max-w-[160px] sm:max-w-none truncate"
               >
-                Membro: {currentMember.fullName} (Voltar para Líder)
+                {currentMember.fullName.split(' ')[0]} · Sair modo
               </button>
             )}
             {!isLocalNameSwitch && effectiveRole !== actualRole && (
               <button
                 type="button"
                 onClick={() => setPreviewRole(null)}
-                className="px-3 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer whitespace-nowrap"
+                className="px-2.5 py-1.5 text-[11px] sm:text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg cursor-pointer whitespace-nowrap"
               >
-                Modo: {ROLE_LABELS[effectiveRole]} (Sair)
+                {ROLE_LABELS[effectiveRole]} (Sair)
               </button>
             )}
             <button
               type="button"
               onClick={() => setActiveSection('overview')}
-              className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
             >
               <Bell className="w-3.5 h-3.5 text-teal-700" />
               <span className="tabular-nums font-semibold">
@@ -711,7 +807,7 @@ function CellManagementWorkspace() {
           </div>
         </header>
 
-        <main className="flex-1 p-4 sm:p-8 max-w-[1320px] w-full mx-auto">
+        <main className="flex-1 p-3.5 sm:p-6 lg:p-8 pb-24 lg:pb-10 max-w-[1320px] w-full mx-auto">
           {!activeCell ? (
             <div className="py-16 text-center text-sm text-slate-500">
               Sincronizando dados da célula...
@@ -763,6 +859,7 @@ function CellManagementWorkspace() {
               {activeSection === 'organogram' && (
                 <OrganogramView
                   cell={activeCell}
+                  currentUid={user.uid}
                   permissions={permissions}
                   members={members}
                 />
@@ -772,6 +869,7 @@ function CellManagementWorkspace() {
                 <PlanningWorkspace
                   cell={activeCell}
                   currentUid={user.uid}
+                  currentMemberId={currentMember?.id}
                   permissions={permissions}
                   members={members}
                   plans={plans}
@@ -825,18 +923,124 @@ function CellManagementWorkspace() {
                   materials={materials}
                 />
               )}
+
+              {activeSection === 'chat' && (
+                <CellChatView
+                  cell={activeCell}
+                  currentUid={user.uid}
+                  currentMember={currentMember}
+                  userName={displayUserName}
+                  effectiveRole={effectiveRole}
+                  actualRole={actualRole}
+                  members={members}
+                  messages={messages}
+                  permissions={permissions}
+                />
+              )}
             </>
           )}
         </main>
+
+        {/* Mobile Bottom Thumb-Zone Navigation Bar */}
+        <nav
+          aria-label="Navegação rápida móvel"
+          className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 pb-safe"
+        >
+          <div className="grid grid-cols-5 h-14">
+            <button
+              type="button"
+              onClick={() => setActiveSection('overview')}
+              className={`flex flex-col items-center justify-center gap-0.5 text-[10px] cursor-pointer ${
+                activeSection === 'overview'
+                  ? 'text-teal-700 font-semibold'
+                  : 'text-slate-500 font-medium'
+              }`}
+            >
+              <Bell className="w-4 h-4" />
+              <span>Início</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection('planning')}
+              className={`flex flex-col items-center justify-center gap-0.5 text-[10px] cursor-pointer ${
+                activeSection === 'planning'
+                  ? 'text-teal-700 font-semibold'
+                  : 'text-slate-500 font-medium'
+              }`}
+            >
+              <CalendarRange className="w-4 h-4" />
+              <span>Agenda</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection('chat')}
+              className={`relative flex flex-col items-center justify-center gap-0.5 text-[10px] cursor-pointer ${
+                activeSection === 'chat'
+                  ? 'text-teal-700 font-semibold'
+                  : 'text-slate-500 font-medium'
+              }`}
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span>Chat</span>
+              {unreadChatCount > 0 && (
+                <span className="absolute top-1.5 right-3 min-w-[16px] h-4 px-1 rounded-full bg-teal-700 text-white text-[9px] font-bold flex items-center justify-center tabular-nums">
+                  {unreadChatCount > 9 ? '9+' : unreadChatCount}
+                </span>
+              )}
+            </button>
+            {isReadOnlyMember ? (
+              <button
+                type="button"
+                onClick={() => setActiveSection('ficha')}
+                className={`flex flex-col items-center justify-center gap-0.5 text-[10px] cursor-pointer ${
+                  activeSection === 'ficha'
+                    ? 'text-teal-700 font-semibold'
+                    : 'text-slate-500 font-medium'
+                }`}
+              >
+                <UserRoundPen className="w-4 h-4" />
+                <span>Ficha</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setActiveSection('attendance')}
+                className={`flex flex-col items-center justify-center gap-0.5 text-[10px] cursor-pointer ${
+                  activeSection === 'attendance'
+                    ? 'text-teal-700 font-semibold'
+                    : 'text-slate-500 font-medium'
+                }`}
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                <span>Chamada</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              className={`flex flex-col items-center justify-center gap-0.5 text-[10px] cursor-pointer ${
+                activeSection === 'organogram' ||
+                activeSection === 'members' ||
+                activeSection === 'materials' ||
+                (!isReadOnlyMember && activeSection === 'ficha')
+                  ? 'text-teal-700 font-semibold'
+                  : 'text-slate-500 font-medium'
+              }`}
+            >
+              <Menu className="w-4 h-4" />
+              <span>Menu</span>
+            </button>
+          </div>
+        </nav>
       </div>
 
       {/* Modal de troca rápida por Código da Ficha ou Nome no mesmo dispositivo */}
       {nameSwitchOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-md shadow-xl p-6 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl w-full max-w-md shadow-xl p-5 sm:p-6 pb-safe space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-teal-700" />
+                <UserCheck className="w-4 h-4 text-teal-700 shrink-0" />
                 <h2 className="text-base font-bold text-slate-900">
                   Entrar como Membro (Somente Leitura)
                 </h2>
@@ -844,13 +1048,13 @@ function CellManagementWorkspace() {
               <button
                 type="button"
                 onClick={() => setNameSwitchOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-md cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Permite que um membro pré-cadastrado entre usando o código gerado na ficha ou seu nome para apenas visualizar Visão Geral, Planificação e Progresso (sem alterar nenhum dado).
+              Permite entrar no painel usando exclusivamente o código individual gerado na ficha para visualizar Visão Geral, Planificação e Progresso em modo somente leitura.
             </p>
             {nameSwitchError && (
               <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
@@ -860,29 +1064,29 @@ function CellManagementWorkspace() {
             <form onSubmit={handleConfirmNameSwitch} className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Código da Ficha ou Nome Completo *
+                  Código Gerado na Ficha *
                 </label>
                 <input
                   type="text"
                   required
                   autoFocus
                   value={nameSwitchInput}
-                  onChange={(e) => setNameSwitchInput(e.target.value)}
-                  placeholder="Ex.: MARI-4821 ou Mariana Costa"
-                  className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                  onChange={(e) => setNameSwitchInput(e.target.value.toUpperCase())}
+                  placeholder="Ex.: MARI-4821"
+                  className="w-full px-3 py-2.5 min-h-[44px] text-sm font-mono uppercase border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
                 />
               </div>
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setNameSwitchOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  className="px-4 py-2.5 min-h-[42px] text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer"
+                  className="px-4 py-2.5 min-h-[42px] text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer"
                 >
                   Acessar como Membro
                 </button>

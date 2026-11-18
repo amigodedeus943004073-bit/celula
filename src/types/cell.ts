@@ -22,6 +22,11 @@ export type BaptismStatus = 'Batizado' | 'Não Batizado' | 'Em Preparação';
 
 export type PlanStatus = 'Planejada' | 'Realizada' | 'Cancelada';
 
+export type PlanEventType =
+  | 'Reunião de Célula'
+  | 'Atividade Social'
+  | 'Atividade Espiritual';
+
 export type ReportStatus = 'Rascunho' | 'Finalizado';
 
 export type StudyCategory =
@@ -59,8 +64,19 @@ export const FIELD_LIMITS = {
   materialContent: 5000,
   materialSummary: 500,
   resourceUrl: 500,
+  attachmentName: 160,
+  attachmentMime: 120,
+  attachmentDataUrl: 750000,
   notificationTitle: 140,
   notificationMessage: 500,
+  chatMessage: 1000,
+  chatMediaDataUrl: 750000,
+  profession: 120,
+  maritalStatus: 40,
+  emergencyContact: 140,
+  skillsOrInterests: 300,
+  prayerRequest: 600,
+  usefulInfo: 1000,
 } as const;
 
 export const ROLE_LABELS: Record<CellRole, string> = {
@@ -133,6 +149,7 @@ export interface MemberSession {
   uid: string;
   cellId: string;
   accessCode: string;
+  memberCode?: string;
   memberId: string;
   fullName: string;
   createdAt: Timestamp;
@@ -170,6 +187,12 @@ export interface MemberPrivateInfo {
   birthDate: string;
   baptismDate?: string;
   notes: string;
+  profession?: string;
+  maritalStatus?: string;
+  emergencyContact?: string;
+  skillsOrInterests?: string;
+  prayerRequest?: string;
+  usefulInfo?: string;
   updatedAt: Timestamp;
 }
 
@@ -182,6 +205,7 @@ export interface MonthlyPlan {
   date: string;
   monthKey: string;
   time: string;
+  eventType?: PlanEventType;
   lessonTitle: string;
   lessonReference?: string;
   responsibleName: string;
@@ -234,6 +258,9 @@ export interface StudyMaterial {
   summary?: string;
   contentText: string;
   resourceUrl?: string;
+  attachmentName?: string;
+  attachmentMime?: string;
+  attachmentDataUrl?: string;
   monthKey?: string;
   authorName: string;
   createdBy: string;
@@ -253,6 +280,35 @@ export interface CellNotification {
   dueDate: string;
   readByUids: string[];
   createdBy: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export type ChatMediaType = '' | 'image' | 'audio' | 'video';
+
+export interface CellMessage {
+  id: string;
+  cellId: string;
+  ownerUid: string;
+  accessCode: string;
+  allowedEmails: string[];
+  senderUid: string;
+  senderMemberId: string;
+  senderName: string;
+  senderRole: CellRole;
+  senderWing: CellWing;
+  text: string;
+  mediaType?: ChatMediaType;
+  mediaName?: string;
+  mediaMime?: string;
+  mediaDataUrl?: string;
+  mediaUrl?: string;
+  mediaDurationSec?: number;
+  mentionedMemberIds?: string[];
+  mentionedNames?: string[];
+  replyToId?: string;
+  replyToName?: string;
+  replyToPreview?: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -288,14 +344,14 @@ export interface RolePermissions {
   canPublishMaterials: boolean;
   canCreateManualReminders: boolean;
   canViewOwnFicha: boolean;
+  canEditOwnFicha: boolean;
 }
 
 export function getRolePermissions(
   role: CellRole,
   isNameSession: boolean = false,
 ): RolePermissions {
-  // Members authenticated by access code / Name have STRICT READ-ONLY access:
-  // they can view Visão Geral, Planificação & Progresso, Organograma, Estudos, and their own read-only Ficha.
+  // Members authenticated by individual fiche code can view cell panels AND edit only their own ficha.
   if (isNameSession) {
     return {
       canManageCellSettings: false,
@@ -310,6 +366,7 @@ export function getRolePermissions(
       canPublishMaterials: false,
       canCreateManualReminders: false,
       canViewOwnFicha: true,
+      canEditOwnFicha: true,
     };
   }
 
@@ -328,6 +385,7 @@ export function getRolePermissions(
         canPublishMaterials: true,
         canCreateManualReminders: true,
         canViewOwnFicha: true,
+        canEditOwnFicha: true,
       };
     case 'lider_treinamento':
       return {
@@ -343,6 +401,7 @@ export function getRolePermissions(
         canPublishMaterials: true,
         canCreateManualReminders: true,
         canViewOwnFicha: true,
+        canEditOwnFicha: true,
       };
     case 'secretario':
       return {
@@ -358,6 +417,7 @@ export function getRolePermissions(
         canPublishMaterials: false,
         canCreateManualReminders: true,
         canViewOwnFicha: true,
+        canEditOwnFicha: true,
       };
     case 'anfitriao':
     case 'filhinho':
@@ -377,6 +437,7 @@ export function getRolePermissions(
         canPublishMaterials: false,
         canCreateManualReminders: false,
         canViewOwnFicha: true,
+        canEditOwnFicha: true,
       };
   }
 }

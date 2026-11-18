@@ -115,13 +115,60 @@ export function addDaysIso(dateIso: string, deltaDays: number): string {
 }
 
 export function computeMissingRoles(plan: MonthlyPlan): string[] {
+  const isSpecialActivity =
+    plan.eventType === 'Atividade Social' ||
+    plan.eventType === 'Atividade Espiritual';
   const missing: string[] = [];
-  if (!plan.preacherName?.trim()) missing.push('Ministração');
-  if (!plan.worshipName?.trim()) missing.push('Louvor');
+  if (!plan.responsibleName?.trim()) missing.push('Dirigente');
+  if (!plan.worshipName?.trim() && !isSpecialActivity) missing.push('Louvor');
+  if (!plan.icebreakerName?.trim() && !isSpecialActivity) {
+    missing.push('Quebra-gelo');
+  }
   if (!plan.snackName?.trim()) missing.push('Lanche');
-  if (!plan.icebreakerName?.trim()) missing.push('Quebra-gelo');
-  if (!plan.prayerName?.trim()) missing.push('Oração');
   return missing;
+}
+
+export interface MemberMonthlyAssignment {
+  plan: MonthlyPlan;
+  roles: string[];
+}
+
+function samePersonName(a: string | undefined, b: string): boolean {
+  if (!a) return false;
+  const norm = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+  const na = norm(a);
+  const nb = norm(b);
+  return Boolean(na && nb && (na === nb || na.includes(nb) || nb.includes(na)));
+}
+
+export function getMemberMonthlyResponsibilities(
+  memberName: string,
+  monthPlans: MonthlyPlan[],
+): MemberMonthlyAssignment[] {
+  const results: MemberMonthlyAssignment[] = [];
+  for (const plan of monthPlans) {
+    if (plan.status === 'Cancelada') continue;
+    const roles: string[] = [];
+    if (samePersonName(plan.responsibleName, memberName)) roles.push('Dirigente');
+    if (samePersonName(plan.worshipName, memberName)) roles.push('Louvor');
+    if (samePersonName(plan.icebreakerName, memberName)) {
+      roles.push('Quebra-gelo');
+    }
+    if (samePersonName(plan.snackName, memberName)) roles.push('Lanche');
+    if (samePersonName(plan.preacherName, memberName)) {
+      roles.push('Ministração');
+    }
+    if (samePersonName(plan.prayerName, memberName)) roles.push('Oração');
+    if (roles.length > 0) {
+      results.push({ plan, roles });
+    }
+  }
+  return results.sort((a, b) => a.plan.date.localeCompare(b.plan.date));
 }
 
 export function computeAutomaticAlerts(
@@ -166,9 +213,9 @@ export function computeAutomaticAlerts(
         type: 'reuniao_pendente',
         severity: isToday ? 'alta' : 'media',
         title: isToday
-          ? `Reunião hoje às ${plan.time}: ${plan.lessonTitle}`
-          : `Próxima reunião em ${formatDatePt(plan.date)}: ${plan.lessonTitle}`,
-        message: `Responsável: ${plan.responsibleName}${plan.location ? ` · Local: ${plan.location}` : ''}.`,
+          ? `${plan.eventType && plan.eventType !== 'Reunião de Célula' ? plan.eventType : 'Reunião'} hoje às ${plan.time}: ${plan.lessonTitle}`
+          : `Próxima programação em ${formatDatePt(plan.date)}: ${plan.lessonTitle}`,
+        message: `Dirigente: ${plan.responsibleName}${plan.location ? ` · Local: ${plan.location}` : ''}.`,
         dueDate: plan.date,
         actionView: 'planning',
         relatedPlanId: plan.id,

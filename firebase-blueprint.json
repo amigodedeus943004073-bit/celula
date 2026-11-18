@@ -190,7 +190,7 @@
     },
     "MemberSession": {
       "title": "MemberSession",
-      "description": "Sessão vinculada de membro autenticado por código e nome (somente leitura).",
+      "description": "Sessão vinculada de membro autenticado por código individual.",
       "type": "object",
       "properties": {
         "uid": {
@@ -204,6 +204,12 @@
           "pattern": "^[a-zA-Z0-9_\\-]+$"
         },
         "accessCode": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 20,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "memberCode": {
           "type": "string",
           "minLength": 6,
           "maxLength": 20,
@@ -316,7 +322,7 @@
     },
     "MemberPrivateInfo": {
       "title": "MemberPrivateInfo",
-      "description": "Dados pessoais (PII) gerenciados pela liderança e visualizados em modo somente leitura pelo próprio membro.",
+      "description": "Dados pessoais (PII) e informações úteis editáveis apenas pelo próprio membro e pela liderança.",
       "type": "object",
       "properties": {
         "cellId": {
@@ -353,6 +359,30 @@
           "type": "string",
           "maxLength": 2000
         },
+        "profession": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "maritalStatus": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "emergencyContact": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "skillsOrInterests": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "prayerRequest": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "usefulInfo": {
+          "type": "string",
+          "maxLength": 1000
+        },
         "updatedAt": {
           "type": "string",
           "format": "date-time"
@@ -372,6 +402,7 @@
         "date": { "type": "string", "maxLength": 10 },
         "monthKey": { "type": "string", "maxLength": 7 },
         "time": { "type": "string", "maxLength": 10 },
+        "eventType": { "type": "string", "enum": ["Reunião de Célula", "Atividade Social", "Atividade Espiritual"] },
         "lessonTitle": { "type": "string", "maxLength": 160 },
         "lessonReference": { "type": "string", "maxLength": 160 },
         "responsibleName": { "type": "string", "maxLength": 120 },
@@ -432,6 +463,9 @@
         "summary": { "type": "string", "maxLength": 500 },
         "contentText": { "type": "string", "maxLength": 5000 },
         "resourceUrl": { "type": "string", "maxLength": 500 },
+        "attachmentName": { "type": "string", "maxLength": 160 },
+        "attachmentMime": { "type": "string", "maxLength": 120 },
+        "attachmentDataUrl": { "type": "string", "maxLength": 750000 },
         "monthKey": { "type": "string", "maxLength": 7 },
         "authorName": { "type": "string", "maxLength": 120 },
         "createdBy": { "type": "string", "maxLength": 128 },
@@ -459,6 +493,37 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["cellId", "ownerUid", "allowedEmails", "type", "title", "message", "dueDate", "readByUids", "createdBy", "createdAt", "updatedAt"]
+    },
+    "CellMessage": {
+      "title": "CellMessage",
+      "description": "Mensagens de texto, áudio, foto, vídeo e menções no bate-papo exclusivo entre membros registrados.",
+      "type": "object",
+      "properties": {
+        "cellId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "accessCode": { "type": "string", "maxLength": 20 },
+        "allowedEmails": { "type": "array" },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "senderMemberId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 120 },
+        "senderRole": { "type": "string", "enum": ["lider", "lider_treinamento", "secretario", "anfitriao", "filhinho", "visitante", "membro"] },
+        "senderWing": { "type": "string", "enum": ["Masculina", "Feminina"] },
+        "text": { "type": "string", "minLength": 0, "maxLength": 1000 },
+        "mediaType": { "type": "string", "enum": ["", "image", "audio", "video"] },
+        "mediaName": { "type": "string", "maxLength": 160 },
+        "mediaMime": { "type": "string", "maxLength": 120 },
+        "mediaDataUrl": { "type": "string", "maxLength": 750000 },
+        "mediaUrl": { "type": "string", "maxLength": 500 },
+        "mediaDurationSec": { "type": "number" },
+        "mentionedMemberIds": { "type": "array" },
+        "mentionedNames": { "type": "array" },
+        "replyToId": { "type": "string", "maxLength": 128 },
+        "replyToName": { "type": "string", "maxLength": 120 },
+        "replyToPreview": { "type": "string", "maxLength": 160 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cellId", "ownerUid", "accessCode", "allowedEmails", "senderUid", "senderMemberId", "senderName", "senderRole", "senderWing", "text", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -505,6 +570,10 @@
     "/notifications/{notificationId}": {
       "schema": { "$ref": "#/entities/CellNotification" },
       "description": "Lembretes e notificações."
+    },
+    "/cellMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/CellMessage" },
+      "description": "Mensagens do bate-papo entre membros registrados."
     }
   }
 }

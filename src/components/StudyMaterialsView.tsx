@@ -3,11 +3,14 @@ import {
   BookOpen,
   Check,
   Copy,
+  Download,
   Edit3,
   ExternalLink,
+  FileText,
   Plus,
   Search,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { getMonthKey, getTodayIso } from '../lib/cellAnalytics';
@@ -58,6 +61,9 @@ export function StudyMaterialsView({
   const [summary, setSummary] = useState('');
   const [contentText, setContentText] = useState('');
   const [resourceUrl, setResourceUrl] = useState('');
+  const [attachmentName, setAttachmentName] = useState('');
+  const [attachmentMime, setAttachmentMime] = useState('');
+  const [attachmentDataUrl, setAttachmentDataUrl] = useState('');
   const [monthKey, setMonthKey] = useState(getMonthKey(getTodayIso()));
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -86,6 +92,9 @@ export function StudyMaterialsView({
     setSummary('');
     setContentText('');
     setResourceUrl('');
+    setAttachmentName('');
+    setAttachmentMime('');
+    setAttachmentDataUrl('');
     setMonthKey(getMonthKey(getTodayIso()));
     setFormError(null);
     setModalOpen(true);
@@ -98,15 +107,74 @@ export function StudyMaterialsView({
     setSummary(m.summary || '');
     setContentText(m.contentText);
     setResourceUrl(m.resourceUrl || '');
+    setAttachmentName(m.attachmentName || '');
+    setAttachmentMime(m.attachmentMime || '');
+    setAttachmentDataUrl(m.attachmentDataUrl || '');
     setMonthKey(m.monthKey || getMonthKey(getTodayIso()));
     setFormError(null);
     setModalOpen(true);
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFormError(null);
+
+    const maxBytes = 550 * 1024;
+    if (file.size > maxBytes) {
+      setFormError(
+        `O arquivo "${file.name}" tem ${(file.size / 1024).toFixed(0)} KB. Envie arquivos de até 550 KB (ou use o campo Link Externo para vídeos/PDFs maiores).`,
+      );
+      e.target.value = '';
+      return;
+    }
+
+    if (!title.trim()) {
+      const cleanName = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
+      setTitle(cleanName.slice(0, 160));
+    }
+
+    const isPlainText =
+      file.type.startsWith('text/') ||
+      /\.(txt|md|csv)$/i.test(file.name);
+
+    if (isPlainText) {
+      try {
+        const text = await file.text();
+        if (text.trim() && !contentText.trim()) {
+          setContentText(text.trim().slice(0, 5000));
+        }
+      } catch {
+        // Ignore text decode errors
+      }
+    } else if (!contentText.trim()) {
+      setContentText(`Arquivo de estudo anexado: ${file.name}`);
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (result.length > 740000) {
+        setFormError(
+          'O arquivo codificado ultrapassou o limite permitido. Escolha um arquivo menor ou use um link externo.',
+        );
+        return;
+      }
+      setAttachmentName(file.name.slice(0, 160));
+      setAttachmentMime((file.type || 'application/octet-stream').slice(0, 120));
+      setAttachmentDataUrl(result);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (title.trim().length < 2 || contentText.trim().length < 5) {
-      setFormError('Informe título e conteúdo do material.');
+    if (title.trim().length < 2) {
+      setFormError('Informe o título do material.');
+      return;
+    }
+    if (!attachmentDataUrl && contentText.trim().length < 5) {
+      setFormError('Escreva o conteúdo do estudo ou anexe um arquivo do computador/telefone.');
       return;
     }
     setSaving(true);
@@ -115,6 +183,7 @@ export function StudyMaterialsView({
       await saveStudyMaterial({
         cell,
         existingMaterial: editingMaterial,
+        existingMaterials: materials,
         currentUid,
         authorName: userName,
         data: {
@@ -123,6 +192,9 @@ export function StudyMaterialsView({
           summary,
           contentText,
           resourceUrl,
+          attachmentName,
+          attachmentMime,
+          attachmentDataUrl,
           monthKey,
         },
       });
@@ -165,7 +237,7 @@ export function StudyMaterialsView({
           <button
             type="button"
             onClick={openCreateModal}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[42px] text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <Plus className="w-4 h-4" />
             Compartilhar Material
@@ -182,17 +254,17 @@ export function StudyMaterialsView({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar estudos por título ou tema..."
-            className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+            className="w-full pl-9 pr-3 py-2.5 min-h-[42px] text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
           />
         </div>
 
-        <div className="inline-flex flex-wrap items-center gap-1 p-1 bg-slate-200/60 rounded-lg">
+        <div className="flex items-center gap-1 p-1 bg-slate-200/60 rounded-lg overflow-x-auto no-scrollbar max-w-full">
           {(['Todos', ...CATEGORIES] as const).map((cat) => (
             <button
               key={cat}
               type="button"
               onClick={() => setCategoryFilter(cat)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              className={`px-3 py-1.5 min-h-[36px] text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                 categoryFilter === cat
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
@@ -249,6 +321,16 @@ export function StudyMaterialsView({
                   <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">
                     {mat.summary || mat.contentText}
                   </p>
+                  {mat.attachmentName && mat.attachmentDataUrl && (
+                    <a
+                      href={mat.attachmentDataUrl}
+                      download={mat.attachmentName}
+                      className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-md max-w-full"
+                    >
+                      <Download className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{mat.attachmentName}</span>
+                    </a>
+                  )}
                 </div>
 
                 <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between gap-2">
@@ -256,7 +338,7 @@ export function StudyMaterialsView({
                     <button
                       type="button"
                       onClick={() => setReadingItem(mat)}
-                      className="px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50 rounded-lg cursor-pointer whitespace-nowrap"
+                      className="px-3 py-2 min-h-[36px] text-xs font-semibold text-teal-700 bg-teal-50/70 hover:bg-teal-100 rounded-lg cursor-pointer whitespace-nowrap"
                     >
                       Ler Estudo
                     </button>
@@ -264,7 +346,7 @@ export function StudyMaterialsView({
                       type="button"
                       onClick={() => handleCopyShare(mat)}
                       title="Copiar texto para compartilhar com a célula"
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer whitespace-nowrap"
+                      className="inline-flex items-center gap-1 px-2.5 py-2 min-h-[36px] text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer whitespace-nowrap"
                     >
                       {copiedId === mat.id ? (
                         <>
@@ -286,17 +368,17 @@ export function StudyMaterialsView({
                         type="button"
                         onClick={() => openEditModal(mat)}
                         title="Editar material"
-                        className="p-1.5 text-slate-500 hover:text-slate-900 rounded cursor-pointer"
+                        className="min-h-[36px] min-w-[36px] inline-flex items-center justify-center text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
+                        <Edit3 className="w-4 h-4" />
                       </button>
                       <button
                         type="button"
                         onClick={() => deleteStudyMaterial(mat.id)}
                         title="Excluir material"
-                        className="p-1.5 text-slate-400 hover:text-red-600 rounded cursor-pointer"
+                        className="min-h-[36px] min-w-[36px] inline-flex items-center justify-center text-slate-400 hover:text-red-600 rounded-lg cursor-pointer"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   )}
@@ -309,21 +391,21 @@ export function StudyMaterialsView({
 
       {/* Study Reader Modal */}
       {readingItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-2xl p-6 sm:p-8 my-8">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl p-5 sm:p-8 sm:my-8 max-h-[92vh] overflow-y-auto pb-safe">
             <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-200">
               <div>
                 <div className="text-xs font-medium text-teal-700">
                   {readingItem.category} · Por {readingItem.authorName}
                 </div>
-                <h2 className="text-xl font-bold text-slate-900 mt-1">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 mt-1">
                   {readingItem.title}
                 </h2>
               </div>
               <button
                 type="button"
                 onClick={() => setReadingItem(null)}
-                className="p-2 text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -335,24 +417,45 @@ export function StudyMaterialsView({
               </p>
             )}
 
-            <div className="mt-5 text-sm text-slate-800 leading-relaxed whitespace-pre-line max-h-[55vh] overflow-y-auto pr-2">
+            <div className="mt-5 text-sm text-slate-800 leading-relaxed whitespace-pre-line max-h-[45vh] overflow-y-auto pr-2">
               {readingItem.contentText}
             </div>
 
-            <div className="mt-6 pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
-              {readingItem.resourceUrl ? (
-                <a
-                  href={readingItem.resourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:underline"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Abrir anexo / link complementar
-                </a>
-              ) : (
-                <span />
+            {readingItem.attachmentDataUrl &&
+              readingItem.attachmentMime?.startsWith('image/') && (
+                <div className="mt-4 border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                  <img
+                    src={readingItem.attachmentDataUrl}
+                    alt={readingItem.attachmentName || readingItem.title}
+                    className="max-h-72 w-full object-contain"
+                  />
+                </div>
               )}
+
+            <div className="mt-6 pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                {readingItem.attachmentDataUrl && readingItem.attachmentName && (
+                  <a
+                    href={readingItem.attachmentDataUrl}
+                    download={readingItem.attachmentName}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-lg"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Baixar {readingItem.attachmentName}
+                  </a>
+                )}
+                {readingItem.resourceUrl && (
+                  <a
+                    href={readingItem.resourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-700 hover:underline"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Abrir link complementar
+                  </a>
+                )}
+              </div>
 
               <div className="flex items-center gap-2">
                 <button
@@ -378,11 +481,11 @@ export function StudyMaterialsView({
 
       {/* Create / Edit Study Material Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-2xl p-6 sm:p-8 my-8">
-            <div className="flex items-start justify-between gap-4 mb-6">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl p-5 sm:p-8 sm:my-8 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4 mb-5">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900">
                   {editingMaterial
                     ? 'Editar Material de Estudo'
                     : 'Compartilhar Novo Material'}
@@ -394,7 +497,7 @@ export function StudyMaterialsView({
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="p-2 text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -455,17 +558,62 @@ export function StudyMaterialsView({
                 />
               </div>
 
+              {/* File Upload from Computer or Phone */}
+              <div className="border border-dashed border-slate-300 rounded-xl p-4 bg-slate-50/70">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                      <Upload className="w-4 h-4 text-teal-700" />
+                      Enviar Estudo do Computador ou Telefone
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Suporta PDF, Word (.doc/.docx), texto (.txt/.md), slides ou imagem (até 550 KB). Arquivos de texto preenchem o esboço automaticamente.
+                    </p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-white border border-teal-300 hover:bg-teal-50 rounded-lg cursor-pointer whitespace-nowrap shrink-0">
+                    <Upload className="w-3.5 h-3.5" />
+                    Selecionar Arquivo
+                    <input
+                      type="file"
+                      accept=".txt,.md,.csv,.pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.webp"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {attachmentName && (
+                  <div className="mt-3 flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs">
+                    <span className="inline-flex items-center gap-2 font-medium text-slate-800 truncate">
+                      <FileText className="w-4 h-4 text-teal-700 shrink-0" />
+                      {attachmentName}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAttachmentName('');
+                        setAttachmentMime('');
+                        setAttachmentDataUrl('');
+                      }}
+                      className="text-xs text-red-600 hover:underline cursor-pointer shrink-0"
+                    >
+                      Remover anexo
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Conteúdo / Esboço Completo *
+                  Conteúdo / Esboço Completo {!attachmentDataUrl && '*'}
                 </label>
                 <textarea
                   rows={6}
-                  required
+                  required={!attachmentDataUrl}
                   maxLength={5000}
                   value={contentText}
                   onChange={(e) => setContentText(e.target.value)}
-                  placeholder="Escreva o texto base, perguntas para debate e aplicação prática..."
+                  placeholder="Escreva o texto base, perguntas para debate ou envie um arquivo do seu aparelho acima..."
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
                 />
               </div>
@@ -497,18 +645,18 @@ export function StudyMaterialsView({
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 pb-safe">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  className="px-4 py-2.5 min-h-[42px] text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer"
+                  className="px-5 py-2.5 min-h-[42px] text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer"
                 >
                   {saving ? 'Publicando...' : 'Publicar Material'}
                 </button>

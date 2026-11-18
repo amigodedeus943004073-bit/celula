@@ -77,11 +77,11 @@ export function CellSetupModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4">
-      <div className="bg-white border border-slate-200 rounded-xl w-full max-w-lg p-6 sm:p-8">
-        <div className="flex items-start justify-between gap-4 mb-6">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl w-full max-w-lg p-5 sm:p-8 max-h-[92vh] overflow-y-auto">
+        <div className="flex items-start justify-between gap-4 mb-5">
           <div>
-            <h2 className="text-xl font-bold text-slate-900">
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900">
               {mode === 'create'
                 ? 'Configurar Sua Célula'
                 : 'Configurações da Célula'}
@@ -97,7 +97,7 @@ export function CellSetupModal({
               type="button"
               onClick={onClose}
               aria-label="Fechar"
-              className="p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 cursor-pointer"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-100 cursor-pointer shrink-0"
             >
               <X className="w-5 h-5" />
             </button>
@@ -201,12 +201,12 @@ export function CellSetupModal({
             </label>
           )}
 
-          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+          <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 pb-safe">
             {onClose && (
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                className="px-4 py-2.5 min-h-[42px] text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 Cancelar
               </button>
@@ -214,7 +214,7 @@ export function CellSetupModal({
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2.5 text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-5 py-2.5 min-h-[42px] text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {saving
                 ? 'Salvando...'

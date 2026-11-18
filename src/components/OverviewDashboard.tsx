@@ -111,26 +111,26 @@ export function OverviewDashboard({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       {/* Header summary */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-medium text-teal-700 mb-1">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-teal-700 mb-1 truncate">
             {cell.meetingDay} · {cell.meetingTime}
             {cell.location ? ` · ${cell.location}` : ''}
           </p>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-xl sm:text-3xl font-bold text-slate-900 tracking-tight">
             Painel de Produtividade e Lembretes
           </h1>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-2.5 shrink-0">
           {permissions.canViewOwnFicha && (
             <button
               type="button"
               onClick={() => onNavigate('ficha')}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              className="min-h-[42px] inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
             >
-              <UserRoundPen className="w-4 h-4" />
+              <UserRoundPen className="w-4 h-4 shrink-0" />
               Minha Ficha
             </button>
           )}
@@ -138,75 +138,99 @@ export function OverviewDashboard({
             <button
               type="button"
               onClick={() => setShowNewReminder((v) => !v)}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              className="min-h-[42px] inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 shrink-0" />
               Novo Lembrete
             </button>
           )}
           <button
             type="button"
             onClick={() => onNavigate('planning', { tab: 'semana' })}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+            className="col-span-2 sm:col-span-1 min-h-[42px] inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
           >
             Ver Planificação e Progresso
-            <ArrowRight className="w-4 h-4" />
+            <ArrowRight className="w-4 h-4 shrink-0" />
           </button>
         </div>
       </div>
 
-      {/* 4-column KPI strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="text-xs font-medium text-slate-500">
-            Frequência Média ({formatMonthLabelPt(currentMonthKey).split(' ')[0]})
+      {/* 2x2 mobile / 4-column desktop KPI strip */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
+          <div>
+            <div className="text-[11px] sm:text-xs font-medium text-slate-500">
+              Frequência Média ({formatMonthLabelPt(currentMonthKey).split(' ')[0]})
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1.5 sm:mt-2">
+              {progressMetrics.avgAttendanceRate}%
+            </div>
           </div>
-          <div className="text-3xl font-bold text-slate-900 tabular-nums mt-2">
-            {progressMetrics.avgAttendanceRate}%
-          </div>
-          <div className="text-xs text-slate-500 mt-1 tabular-nums">
-            Média de {progressMetrics.avgPresentCount} presentes · {progressMetrics.totalVisitors} visitantes
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="text-xs font-medium text-slate-500">
-            Reuniões no Mês
-          </div>
-          <div className="text-3xl font-bold text-slate-900 tabular-nums mt-2">
-            {progressMetrics.completedCount} / {progressMetrics.plannedCount}
-          </div>
-          <div className="text-xs text-slate-500 mt-1 tabular-nums">
-            {progressMetrics.completionRate}% do plano mensal concluído
+          <div className="mt-2.5">
+            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-teal-700 rounded-full transition-all"
+                style={{ width: `${progressMetrics.avgAttendanceRate}%` }}
+              />
+            </div>
+            <div className="text-[11px] sm:text-xs text-slate-500 mt-1.5 tabular-nums truncate">
+              {progressMetrics.avgPresentCount} pres. · {progressMetrics.totalVisitors} vis.
+            </div>
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="text-xs font-medium text-slate-500">
-            Membros e Liderança
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
+          <div>
+            <div className="text-[11px] sm:text-xs font-medium text-slate-500">
+              Reuniões no Mês
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1.5 sm:mt-2">
+              {progressMetrics.completedCount} / {progressMetrics.plannedCount}
+            </div>
           </div>
-          <div className="text-3xl font-bold text-slate-900 tabular-nums mt-2">
-            {members.length}
+          <div className="mt-2.5">
+            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-600 rounded-full transition-all"
+                style={{ width: `${progressMetrics.completionRate}%` }}
+              />
+            </div>
+            <div className="text-[11px] sm:text-xs text-slate-500 mt-1.5 tabular-nums truncate">
+              {progressMetrics.completionRate}% concluído
+            </div>
           </div>
-          <div className="text-xs text-slate-500 mt-1 tabular-nums">
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
+          <div>
+            <div className="text-[11px] sm:text-xs font-medium text-slate-500">
+              Membros e Liderança
+            </div>
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1.5 sm:mt-2">
+              {members.length}
+            </div>
+          </div>
+          <div className="text-[11px] sm:text-xs text-slate-500 mt-2 tabular-nums">
             {trainersCount}/{MAX_TRAINERS_PER_CELL} treinando · {filhinhosCount} filhinhos
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="text-xs font-medium text-slate-500">
-            Lembretes Pendentes
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
+          <div>
+            <div className="text-[11px] sm:text-xs font-medium text-slate-500">
+              Lembretes Pendentes
+            </div>
+            <div
+              className={`text-2xl sm:text-3xl font-bold tabular-nums mt-1.5 sm:mt-2 ${
+                totalPendingAlerts > 0 ? 'text-amber-600' : 'text-emerald-700'
+              }`}
+            >
+              {totalPendingAlerts}
+            </div>
           </div>
-          <div
-            className={`text-3xl font-bold tabular-nums mt-2 ${
-              totalPendingAlerts > 0 ? 'text-amber-600' : 'text-emerald-700'
-            }`}
-          >
-            {totalPendingAlerts}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
+          <div className="text-[11px] sm:text-xs text-slate-500 mt-2">
             {totalPendingAlerts > 0
-              ? 'Reuniões, escalas ou relatórios pendentes'
+              ? 'Escalas ou reuniões pendentes'
               : 'Tudo em dia na célula'}
           </div>
         </div>
@@ -300,24 +324,24 @@ export function OverviewDashboard({
       )}
 
       {/* Main 2-column grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 items-start">
         {/* Automatic Notifications & Pending Reminders */}
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl">
-          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2.5">
-              <Bell className="w-4 h-4 text-teal-700" />
-              <h2 className="text-base font-semibold text-slate-900">
+        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Bell className="w-4 h-4 text-teal-700 shrink-0" />
+              <h2 className="text-sm sm:text-base font-semibold text-slate-900 truncate">
                 Notificações Automáticas e Lembretes
               </h2>
             </div>
-            <span className="text-xs text-slate-500 tabular-nums">
+            <span className="text-xs text-slate-500 tabular-nums shrink-0">
               {totalPendingAlerts} pendente(s)
             </span>
           </div>
 
           <div className="divide-y divide-slate-100">
             {activeAutoAlerts.length === 0 && notifications.length === 0 && (
-              <div className="p-8 text-center">
+              <div className="p-6 sm:p-8 text-center">
                 <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto mb-2" />
                 <p className="text-sm font-medium text-slate-900">
                   Nenhuma pendência imediata
@@ -331,7 +355,7 @@ export function OverviewDashboard({
             {activeAutoAlerts.map((alert) => (
               <div
                 key={alert.id}
-                className="px-6 py-4 flex items-start justify-between gap-4 hover:bg-slate-50/70 transition-colors"
+                className="px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3 hover:bg-slate-50/70 transition-colors"
               >
                 <div className="flex items-start gap-3 min-w-0">
                   {alert.severity === 'alta' ? (
@@ -340,7 +364,7 @@ export function OverviewDashboard({
                     <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   )}
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mb-0.5">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mb-0.5">
                       <span
                         className={
                           alert.severity === 'alta'
@@ -363,7 +387,7 @@ export function OverviewDashboard({
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center justify-end gap-2 shrink-0 pl-7 sm:pl-0">
                   {alert.actionView &&
                     (permissions.canRecordAttendance ||
                       (alert.actionView !== 'attendance' &&
@@ -379,7 +403,7 @@ export function OverviewDashboard({
                                 : undefined,
                           })
                         }
-                        className="px-2.5 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50 rounded-md cursor-pointer whitespace-nowrap"
+                        className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-teal-700 bg-teal-50 sm:bg-transparent hover:bg-teal-50 rounded-md cursor-pointer whitespace-nowrap"
                       >
                         Ver
                       </button>
@@ -390,7 +414,7 @@ export function OverviewDashboard({
                       setDismissedAutoIds((prev) => [...prev, alert.id])
                     }
                     title="Ocultar aviso nesta sessão"
-                    className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
+                    className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-md cursor-pointer"
                   >
                     <Check className="w-4 h-4" />
                   </button>
@@ -403,7 +427,7 @@ export function OverviewDashboard({
               return (
                 <div
                   key={notif.id}
-                  className={`px-6 py-4 flex items-start justify-between gap-4 ${
+                  className={`px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-start justify-between gap-3 ${
                     isRead ? 'opacity-65' : 'bg-white'
                   }`}
                 >
@@ -424,12 +448,12 @@ export function OverviewDashboard({
                       {notif.message}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center justify-end gap-1.5 shrink-0">
                     {!isRead && permissions.canCreateManualReminders && (
                       <button
                         type="button"
                         onClick={() => markNotificationRead(notif, currentUid)}
-                        className="px-2.5 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50 rounded-md cursor-pointer whitespace-nowrap"
+                        className="min-h-[36px] px-3 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-50 rounded-md cursor-pointer whitespace-nowrap"
                       >
                         Marcar lido
                       </button>
@@ -439,7 +463,7 @@ export function OverviewDashboard({
                         type="button"
                         onClick={() => deleteNotificationRecord(notif.id)}
                         title="Excluir lembrete"
-                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-md cursor-pointer"
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center text-slate-400 hover:text-red-600 rounded-md cursor-pointer"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -452,8 +476,8 @@ export function OverviewDashboard({
         </div>
 
         {/* Right column: Next meeting + Leadership hierarchy */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white border border-slate-200 rounded-xl p-6">
+        <div className="lg:col-span-5 space-y-5 sm:space-y-6">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
             <div className="flex items-center justify-between gap-2 mb-4">
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-teal-700" />
@@ -470,6 +494,12 @@ export function OverviewDashboard({
 
             {upcomingPlan ? (
               <div>
+                {upcomingPlan.eventType &&
+                  upcomingPlan.eventType !== 'Reunião de Célula' && (
+                    <div className="text-xs font-semibold text-teal-700 mb-1">
+                      {upcomingPlan.eventType} (Data isolada)
+                    </div>
+                  )}
                 <h3 className="text-lg font-bold text-slate-900 mb-1">
                   {upcomingPlan.lessonTitle}
                 </h3>
@@ -481,21 +511,21 @@ export function OverviewDashboard({
 
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-3 py-4 border-y border-slate-100 text-xs">
                   <div>
-                    <dt className="text-slate-500">Responsável</dt>
+                    <dt className="text-slate-500">Dirigente</dt>
                     <dd className="font-semibold text-slate-900 mt-0.5">
                       {upcomingPlan.responsibleName || 'A definir'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-slate-500">Ministração</dt>
-                    <dd className="font-semibold text-slate-900 mt-0.5">
-                      {upcomingPlan.preacherName || 'A definir'}
                     </dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Louvor</dt>
                     <dd className="font-semibold text-slate-900 mt-0.5">
                       {upcomingPlan.worshipName || 'A definir'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Quebra-gelo</dt>
+                    <dd className="font-semibold text-slate-900 mt-0.5">
+                      {upcomingPlan.icebreakerName || 'A definir'}
                     </dd>
                   </div>
                   <div>
@@ -511,9 +541,9 @@ export function OverviewDashboard({
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-slate-500">Quebra-gelo</dt>
+                    <dt className="text-slate-500">Ministração</dt>
                     <dd className="font-semibold text-slate-900 mt-0.5">
-                      {upcomingPlan.icebreakerName || 'A definir'}
+                      {upcomingPlan.preacherName || 'A definir'}
                     </dd>
                   </div>
                   <div>
@@ -524,14 +554,14 @@ export function OverviewDashboard({
                   </div>
                 </dl>
 
-                <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="mt-4 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-2.5">
                   {permissions.canRecordAttendance && (
                     <button
                       type="button"
                       onClick={() =>
                         onNavigate('attendance', { planId: upcomingPlan.id })
                       }
-                      className="px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+                      className="min-h-[42px] px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
                     >
                       Registrar Frequência e Relatório
                     </button>
@@ -539,7 +569,7 @@ export function OverviewDashboard({
                   <button
                     type="button"
                     onClick={() => onNavigate('planning', { tab: 'mes' })}
-                    className="px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+                    className="min-h-[42px] px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 sm:bg-transparent hover:bg-slate-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
                   >
                     Abrir Calendário
                   </button>
@@ -554,7 +584,7 @@ export function OverviewDashboard({
                   <button
                     type="button"
                     onClick={() => onNavigate('planning', { tab: 'mes' })}
-                    className="px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer"
+                    className="min-h-[42px] px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer"
                   >
                     Planejar Reuniões do Mês
                   </button>
@@ -563,7 +593,7 @@ export function OverviewDashboard({
             )}
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-6">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
             <div className="flex items-center justify-between gap-2 mb-3">
               <h2 className="text-base font-semibold text-slate-900">
                 Estrutura de Discipulado

@@ -36,7 +36,7 @@ service cloud.firestore {
 
     function isBootstrappedAdmin() {
       return isVerifiedUser()
-        && request.auth.token.email == 'amigodeDeus943004073@gmail.com';
+        && request.auth.token.email.lower() == 'amigodedeus943004073@gmail.com';
     }
 
     function isOwner(userId) {
@@ -73,6 +73,12 @@ service cloud.firestore {
         && (list.size() == 0 || (list[0] is string && list[0].size() <= 128));
     }
 
+    function isValidNameList(list, maxLen) {
+      return list is list
+        && list.size() <= maxLen
+        && (list.size() == 0 || (list[0] is string && list[0].size() <= 120));
+    }
+
     function isListAuthorized(data) {
       return (
         isVerifiedUser() && (
@@ -97,6 +103,33 @@ service cloud.firestore {
       return isAnonymousSession()
         && exists(/databases/$(database)/documents/memberSessions/$(request.auth.uid))
         && get(/databases/$(database)/documents/memberSessions/$(request.auth.uid)).data.memberId == memberId;
+    }
+
+    function isMemberOwnerOnCreate(memberId) {
+      return isMemberSessionSelf(memberId)
+        || (
+          isVerifiedUser()
+          && exists(/databases/$(database)/documents/members/$(memberId))
+          && 'memberEmail' in get(/databases/$(database)/documents/members/$(memberId)).data
+          && get(/databases/$(database)/documents/members/$(memberId)).data.memberEmail != ''
+          && get(/databases/$(database)/documents/members/$(memberId)).data.memberEmail.lower() == request.auth.token.email.lower()
+        );
+    }
+
+    function isMemberOwnerOnUpdate(memberId) {
+      return isMemberSessionSelf(memberId)
+        || (
+          isVerifiedUser()
+          && (
+            ('email' in existing() && existing().email != '' && existing().email.lower() == request.auth.token.email.lower())
+            || (
+              exists(/databases/$(database)/documents/members/$(memberId))
+              && 'memberEmail' in get(/databases/$(database)/documents/members/$(memberId)).data
+              && get(/databases/$(database)/documents/members/$(memberId)).data.memberEmail != ''
+              && get(/databases/$(database)/documents/members/$(memberId)).data.memberEmail.lower() == request.auth.token.email.lower()
+            )
+          )
+        );
     }
 
     function isCellLeader(cellId) {
@@ -203,10 +236,11 @@ service cloud.firestore {
 
     function isValidMemberSession(data) {
       return data.keys().hasAll(['uid', 'cellId', 'accessCode', 'memberId', 'fullName', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'cellId', 'accessCode', 'memberId', 'fullName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'cellId', 'accessCode', 'memberCode', 'memberId', 'fullName', 'createdAt', 'updatedAt'])
         && isValidId(data.uid)
         && isValidId(data.cellId)
         && isValidAccessCode(data.accessCode)
+        && (!('memberCode' in data) || isValidAccessCode(data.memberCode))
         && isValidId(data.memberId)
         && isValidString(data.fullName, 2, 120)
         && data.createdAt is timestamp
@@ -238,7 +272,7 @@ service cloud.firestore {
 
     function isValidMemberPrivateInfo(data) {
       return data.keys().hasAll(['cellId', 'ownerUid', 'phone', 'address', 'birthDate', 'notes', 'updatedAt'])
-        && data.keys().hasOnly(['cellId', 'ownerUid', 'email', 'phone', 'address', 'birthDate', 'baptismDate', 'notes', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'email', 'phone', 'address', 'birthDate', 'baptismDate', 'notes', 'profession', 'maritalStatus', 'emergencyContact', 'skillsOrInterests', 'prayerRequest', 'usefulInfo', 'updatedAt'])
         && isValidId(data.cellId)
         && isValidId(data.ownerUid)
         && (!('email' in data) || isValidString(data.email, 0, 200))
@@ -247,12 +281,18 @@ service cloud.firestore {
         && (data.birthDate == '' || (isValidString(data.birthDate, 10, 10) && data.birthDate.matches('^\\d{4}-\\d{2}-\\d{2}$')))
         && (!('baptismDate' in data) || data.baptismDate == '' || (isValidString(data.baptismDate, 10, 10) && data.baptismDate.matches('^\\d{4}-\\d{2}-\\d{2}$')))
         && isValidString(data.notes, 0, 2000)
+        && (!('profession' in data) || isValidString(data.profession, 0, 120))
+        && (!('maritalStatus' in data) || isValidString(data.maritalStatus, 0, 40))
+        && (!('emergencyContact' in data) || isValidString(data.emergencyContact, 0, 140))
+        && (!('skillsOrInterests' in data) || isValidString(data.skillsOrInterests, 0, 300))
+        && (!('prayerRequest' in data) || isValidString(data.prayerRequest, 0, 600))
+        && (!('usefulInfo' in data) || isValidString(data.usefulInfo, 0, 1000))
         && data.updatedAt is timestamp;
     }
 
     function isValidMonthlyPlan(data) {
       return data.keys().hasAll(['cellId', 'ownerUid', 'allowedEmails', 'date', 'monthKey', 'time', 'lessonTitle', 'responsibleName', 'status', 'createdBy', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'date', 'monthKey', 'time', 'lessonTitle', 'lessonReference', 'responsibleName', 'preacherName', 'worshipName', 'snackName', 'icebreakerName', 'prayerName', 'location', 'notes', 'status', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'date', 'monthKey', 'time', 'eventType', 'lessonTitle', 'lessonReference', 'responsibleName', 'preacherName', 'worshipName', 'snackName', 'icebreakerName', 'prayerName', 'location', 'notes', 'status', 'createdBy', 'createdAt', 'updatedAt'])
         && isValidId(data.cellId)
         && isValidId(data.ownerUid)
         && (!('accessCode' in data) || isValidAccessCode(data.accessCode))
@@ -263,6 +303,7 @@ service cloud.firestore {
         && data.monthKey.matches('^\\d{4}-\\d{2}$')
         && isValidString(data.time, 4, 10)
         && data.time.matches('^([01]\\d|2[0-3]):[0-5]\\d$')
+        && (!('eventType' in data) || data.eventType in ['Reunião de Célula', 'Atividade Social', 'Atividade Espiritual'])
         && isValidString(data.lessonTitle, 2, 160)
         && (!('lessonReference' in data) || isValidString(data.lessonReference, 0, 160))
         && isValidString(data.responsibleName, 1, 120)
@@ -309,7 +350,7 @@ service cloud.firestore {
 
     function isValidStudyMaterial(data) {
       return data.keys().hasAll(['cellId', 'ownerUid', 'allowedEmails', 'title', 'category', 'contentText', 'authorName', 'createdBy', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'title', 'category', 'summary', 'contentText', 'resourceUrl', 'monthKey', 'authorName', 'createdBy', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'title', 'category', 'summary', 'contentText', 'resourceUrl', 'attachmentName', 'attachmentMime', 'attachmentDataUrl', 'monthKey', 'authorName', 'createdBy', 'createdAt', 'updatedAt'])
         && isValidId(data.cellId)
         && isValidId(data.ownerUid)
         && (!('accessCode' in data) || isValidAccessCode(data.accessCode))
@@ -319,6 +360,9 @@ service cloud.firestore {
         && (!('summary' in data) || isValidString(data.summary, 0, 500))
         && isValidString(data.contentText, 5, 5000)
         && (!('resourceUrl' in data) || isValidString(data.resourceUrl, 0, 500))
+        && (!('attachmentName' in data) || isValidString(data.attachmentName, 0, 160))
+        && (!('attachmentMime' in data) || isValidString(data.attachmentMime, 0, 120))
+        && (!('attachmentDataUrl' in data) || isValidString(data.attachmentDataUrl, 0, 750000))
         && (!('monthKey' in data) || data.monthKey == '' || (isValidString(data.monthKey, 7, 7) && data.monthKey.matches('^\\d{4}-\\d{2}$')))
         && isValidString(data.authorName, 2, 120)
         && isValidId(data.createdBy)
@@ -340,6 +384,45 @@ service cloud.firestore {
         && data.dueDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
         && isValidIdList(data.readByUids, 50)
         && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCellMessage(data) {
+      return data.keys().hasAll(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'senderUid', 'senderMemberId', 'senderName', 'senderRole', 'senderWing', 'text', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['cellId', 'ownerUid', 'accessCode', 'allowedEmails', 'senderUid', 'senderMemberId', 'senderName', 'senderRole', 'senderWing', 'text', 'mediaType', 'mediaName', 'mediaMime', 'mediaDataUrl', 'mediaUrl', 'mediaDurationSec', 'mentionedMemberIds', 'mentionedNames', 'replyToId', 'replyToName', 'replyToPreview', 'createdAt', 'updatedAt'])
+        && isValidId(data.cellId)
+        && isValidId(data.ownerUid)
+        && isValidAccessCode(data.accessCode)
+        && isValidEmailList(data.allowedEmails, 50)
+        && isValidId(data.senderUid)
+        && (data.senderMemberId == '' || isValidId(data.senderMemberId))
+        && isValidString(data.senderName, 2, 120)
+        && data.senderRole in ['lider', 'lider_treinamento', 'secretario', 'anfitriao', 'filhinho', 'visitante', 'membro']
+        && data.senderWing in ['Masculina', 'Feminina']
+        && isValidString(data.text, 0, 1000)
+        && (!('mediaType' in data) || data.mediaType in ['', 'image', 'audio', 'video'])
+        && (!('mediaName' in data) || isValidString(data.mediaName, 0, 160))
+        && (!('mediaMime' in data) || isValidString(data.mediaMime, 0, 120))
+        && (!('mediaDataUrl' in data) || isValidString(data.mediaDataUrl, 0, 750000))
+        && (!('mediaUrl' in data) || isValidString(data.mediaUrl, 0, 500))
+        && (!('mediaDurationSec' in data) || (data.mediaDurationSec is int && data.mediaDurationSec >= 0 && data.mediaDurationSec <= 3600))
+        && (!('mentionedMemberIds' in data) || isValidIdList(data.mentionedMemberIds, 50))
+        && (!('mentionedNames' in data) || isValidNameList(data.mentionedNames, 50))
+        && (
+          data.text.size() >= 1
+          || (
+            ('mediaType' in data)
+            && data.mediaType in ['image', 'audio', 'video']
+            && (
+              ('mediaDataUrl' in data && data.mediaDataUrl is string && data.mediaDataUrl.size() > 10)
+              || ('mediaUrl' in data && data.mediaUrl is string && data.mediaUrl.size() > 5)
+            )
+          )
+        )
+        && (!('replyToId' in data) || data.replyToId == '' || isValidId(data.replyToId))
+        && (!('replyToName' in data) || isValidString(data.replyToName, 0, 120))
+        && (!('replyToPreview' in data) || isValidString(data.replyToPreview, 0, 160))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -427,20 +510,30 @@ service cloud.firestore {
         && request.auth.uid == uid
         && isValidMemberSession(incoming())
         && incoming().uid == uid
+        && 'memberCode' in incoming()
+        && isValidAccessCode(incoming().memberCode)
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && exists(/databases/$(database)/documents/cellLookup/$(incoming().accessCode))
-        && get(/databases/$(database)/documents/cellLookup/$(incoming().accessCode)).data.cellId == incoming().cellId;
+        && get(/databases/$(database)/documents/cellLookup/$(incoming().accessCode)).data.cellId == incoming().cellId
+        && exists(/databases/$(database)/documents/memberAccessCodes/$(incoming().memberCode))
+        && get(/databases/$(database)/documents/memberAccessCodes/$(incoming().memberCode)).data.memberId == incoming().memberId
+        && get(/databases/$(database)/documents/memberAccessCodes/$(incoming().memberCode)).data.cellId == incoming().cellId;
       allow update: if isValidId(uid)
         && isAnonymousSession()
         && request.auth.uid == uid
         && isValidMemberSession(incoming())
         && incoming().uid == existing().uid
+        && 'memberCode' in incoming()
+        && isValidAccessCode(incoming().memberCode)
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && exists(/databases/$(database)/documents/cellLookup/$(incoming().accessCode))
         && get(/databases/$(database)/documents/cellLookup/$(incoming().accessCode)).data.cellId == incoming().cellId
-        && incoming().diff(existing()).affectedKeys().hasOnly(['cellId', 'accessCode', 'memberId', 'fullName', 'updatedAt']);
+        && exists(/databases/$(database)/documents/memberAccessCodes/$(incoming().memberCode))
+        && get(/databases/$(database)/documents/memberAccessCodes/$(incoming().memberCode)).data.memberId == incoming().memberId
+        && get(/databases/$(database)/documents/memberAccessCodes/$(incoming().memberCode)).data.cellId == incoming().cellId
+        && incoming().diff(existing()).affectedKeys().hasOnly(['cellId', 'accessCode', 'memberCode', 'memberId', 'fullName', 'updatedAt']);
       allow delete: if isValidId(uid) && isSignedIn() && request.auth.uid == uid;
     }
 
@@ -484,7 +577,7 @@ service cloud.firestore {
         )
         && incoming().ownerUid == cellOwnerUid(incoming().cellId);
       allow update: if isValidId(memberId)
-        && isVerifiedUser()
+        && isSignedIn()
         && isValidCellMember(incoming())
         && incoming().cellId == existing().cellId
         && incoming().ownerUid == existing().ownerUid
@@ -492,9 +585,19 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'memberCode', 'allowedEmails', 'fullName', 'role', 'wing', 'mentorId', 'menteeIds', 'activityLevel', 'isChurchMember', 'baptismStatus', 'birthMonthDay', 'memberEmail', 'updatedAt']))
-          || (isCellTrainer(existing().cellId) && existing().role in ['filhinho', 'visitante', 'membro'] && incoming().role in ['filhinho', 'visitante', 'membro'] && incoming().diff(existing()).affectedKeys().hasOnly(['memberCode', 'fullName', 'wing', 'mentorId', 'activityLevel', 'isChurchMember', 'baptismStatus', 'birthMonthDay', 'updatedAt']))
-          || (isCellTrainer(existing().cellId) && 'memberEmail' in existing() && existing().memberEmail == request.auth.token.email && incoming().diff(existing()).affectedKeys().hasOnly(['menteeIds', 'updatedAt']))
+          (isVerifiedUser() && isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'memberCode', 'allowedEmails', 'fullName', 'role', 'wing', 'mentorId', 'menteeIds', 'activityLevel', 'isChurchMember', 'baptismStatus', 'birthMonthDay', 'memberEmail', 'updatedAt']))
+          || (isVerifiedUser() && isCellTrainer(existing().cellId) && existing().role in ['filhinho', 'visitante', 'membro'] && incoming().role in ['filhinho', 'visitante', 'membro'] && incoming().diff(existing()).affectedKeys().hasOnly(['memberCode', 'fullName', 'wing', 'mentorId', 'activityLevel', 'isChurchMember', 'baptismStatus', 'birthMonthDay', 'updatedAt']))
+          || (isVerifiedUser() && isCellTrainer(existing().cellId) && 'memberEmail' in existing() && existing().memberEmail == request.auth.token.email && incoming().diff(existing()).affectedKeys().hasOnly(['menteeIds', 'updatedAt']))
+          || (
+            (
+              isMemberSessionSelf(memberId)
+              || (isVerifiedUser() && 'memberEmail' in existing() && existing().memberEmail != '' && existing().memberEmail.lower() == request.auth.token.email.lower())
+            )
+            && incoming().role == existing().role
+            && incoming().wing == existing().wing
+            && incoming().fullName == existing().fullName
+            && incoming().diff(existing()).affectedKeys().hasOnly(['birthMonthDay', 'baptismStatus', 'updatedAt'])
+          )
         );
       allow delete: if isValidId(memberId)
         && isVerifiedUser()
@@ -508,31 +611,38 @@ service cloud.firestore {
             isCellLeader(existing().cellId)
             || isCellTrainer(existing().cellId)
             || isCellSecretary(existing().cellId)
-            || isMemberSessionSelf(memberId)
-            || (isVerifiedUser() && 'email' in existing() && existing().email == request.auth.token.email)
+            || isMemberOwnerOnUpdate(memberId)
           );
         allow list: if false;
         allow create: if isValidId(memberId)
           && docId == 'info'
-          && isVerifiedUser()
+          && isSignedIn()
           && isValidMemberPrivateInfo(incoming())
           && exists(/databases/$(database)/documents/members/$(memberId))
           && incoming().updatedAt == request.time
           && incoming().ownerUid == cellOwnerUid(incoming().cellId)
           && (
-            isCellLeader(incoming().cellId)
-            || (isCellTrainer(incoming().cellId) && get(/databases/$(database)/documents/members/$(memberId)).data.role in ['filhinho', 'visitante', 'membro'])
+            (isVerifiedUser() && isCellLeader(incoming().cellId))
+            || (isVerifiedUser() && isCellTrainer(incoming().cellId) && get(/databases/$(database)/documents/members/$(memberId)).data.role in ['filhinho', 'visitante', 'membro'])
+            || (
+              isMemberOwnerOnCreate(memberId)
+              && incoming().cellId == get(/databases/$(database)/documents/members/$(memberId)).data.cellId
+            )
           );
         allow update: if isValidId(memberId)
           && docId == 'info'
-          && isVerifiedUser()
+          && isSignedIn()
           && isValidMemberPrivateInfo(incoming())
           && incoming().cellId == existing().cellId
           && incoming().ownerUid == existing().ownerUid
           && incoming().updatedAt == request.time
           && (
-            (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phone', 'address', 'birthDate', 'baptismDate', 'notes', 'updatedAt']))
-            || (isCellTrainer(existing().cellId) && get(/databases/$(database)/documents/members/$(memberId)).data.role in ['filhinho', 'visitante', 'membro'] && incoming().diff(existing()).affectedKeys().hasOnly(['phone', 'address', 'birthDate', 'baptismDate', 'notes', 'updatedAt']))
+            (isVerifiedUser() && isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'phone', 'address', 'birthDate', 'baptismDate', 'notes', 'profession', 'maritalStatus', 'emergencyContact', 'skillsOrInterests', 'prayerRequest', 'usefulInfo', 'updatedAt']))
+            || (isVerifiedUser() && isCellTrainer(existing().cellId) && get(/databases/$(database)/documents/members/$(memberId)).data.role in ['filhinho', 'visitante', 'membro'] && incoming().diff(existing()).affectedKeys().hasOnly(['phone', 'address', 'birthDate', 'baptismDate', 'notes', 'profession', 'maritalStatus', 'emergencyContact', 'skillsOrInterests', 'prayerRequest', 'usefulInfo', 'updatedAt']))
+            || (
+              isMemberOwnerOnUpdate(memberId)
+              && incoming().diff(existing()).affectedKeys().hasOnly(['phone', 'address', 'birthDate', 'baptismDate', 'notes', 'profession', 'maritalStatus', 'emergencyContact', 'skillsOrInterests', 'prayerRequest', 'usefulInfo', 'updatedAt'])
+            )
           );
         allow delete: if isValidId(memberId)
           && docId == 'info'
@@ -561,8 +671,8 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'allowedEmails', 'date', 'monthKey', 'time', 'lessonTitle', 'lessonReference', 'responsibleName', 'preacherName', 'worshipName', 'snackName', 'icebreakerName', 'prayerName', 'location', 'notes', 'status', 'updatedAt']))
-          || ((isCellTrainer(existing().cellId) || isCellSecretary(existing().cellId)) && incoming().diff(existing()).affectedKeys().hasOnly(['time', 'lessonTitle', 'lessonReference', 'responsibleName', 'preacherName', 'worshipName', 'snackName', 'icebreakerName', 'prayerName', 'location', 'notes', 'status', 'updatedAt']))
+          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'allowedEmails', 'date', 'monthKey', 'time', 'eventType', 'lessonTitle', 'lessonReference', 'responsibleName', 'preacherName', 'worshipName', 'snackName', 'icebreakerName', 'prayerName', 'location', 'notes', 'status', 'updatedAt']))
+          || ((isCellTrainer(existing().cellId) || isCellSecretary(existing().cellId)) && incoming().diff(existing()).affectedKeys().hasOnly(['time', 'eventType', 'lessonTitle', 'lessonReference', 'responsibleName', 'preacherName', 'worshipName', 'snackName', 'icebreakerName', 'prayerName', 'location', 'notes', 'status', 'updatedAt']))
         );
       allow delete: if isValidId(planId)
         && isVerifiedUser()
@@ -617,8 +727,8 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'allowedEmails', 'title', 'category', 'summary', 'contentText', 'resourceUrl', 'monthKey', 'authorName', 'updatedAt']))
-          || (isCellTrainer(existing().cellId) && existing().createdBy == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'summary', 'contentText', 'resourceUrl', 'monthKey', 'updatedAt']))
+          (isCellLeader(existing().cellId) && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'allowedEmails', 'title', 'category', 'summary', 'contentText', 'resourceUrl', 'attachmentName', 'attachmentMime', 'attachmentDataUrl', 'monthKey', 'authorName', 'updatedAt']))
+          || (isCellTrainer(existing().cellId) && existing().createdBy == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'summary', 'contentText', 'resourceUrl', 'attachmentName', 'attachmentMime', 'attachmentDataUrl', 'monthKey', 'updatedAt']))
         );
       allow delete: if isValidId(materialId)
         && isVerifiedUser()
@@ -654,6 +764,64 @@ service cloud.firestore {
       allow delete: if isValidId(notificationId)
         && isVerifiedUser()
         && isCellLeader(existing().cellId);
+    }
+
+    match /cellMessages/{messageId} {
+      allow get: if isValidId(messageId) && (isListAuthorized(existing()) || hasMemberSession(existing().cellId));
+      allow list: if isListAuthorized(existing());
+      allow create: if isSignedIn()
+        && isValidId(messageId)
+        && isValidCellMessage(incoming())
+        && incoming().senderUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/cells/$(incoming().cellId))
+        && incoming().ownerUid == cellOwnerUid(incoming().cellId)
+        && incoming().accessCode == get(/databases/$(database)/documents/cells/$(incoming().cellId)).data.accessCode
+        && (
+          (
+            isVerifiedUser()
+            && (
+              isBootstrappedAdmin()
+              || get(/databases/$(database)/documents/cells/$(incoming().cellId)).data.ownerUid == request.auth.uid
+              || request.auth.token.email in get(/databases/$(database)/documents/cells/$(incoming().cellId)).data.allowedEmails
+            )
+            && (
+              incoming().senderMemberId == ''
+              || (
+                exists(/databases/$(database)/documents/members/$(incoming().senderMemberId))
+                && get(/databases/$(database)/documents/members/$(incoming().senderMemberId)).data.cellId == incoming().cellId
+              )
+            )
+          )
+          || (
+            hasMemberSession(incoming().cellId)
+            && incoming().senderMemberId != ''
+            && incoming().senderMemberId == get(/databases/$(database)/documents/memberSessions/$(request.auth.uid)).data.memberId
+            && exists(/databases/$(database)/documents/members/$(incoming().senderMemberId))
+            && get(/databases/$(database)/documents/members/$(incoming().senderMemberId)).data.cellId == incoming().cellId
+          )
+        );
+      allow update: if isVerifiedUser()
+        && isValidId(messageId)
+        && isValidCellMessage(incoming())
+        && incoming().cellId == existing().cellId
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().senderUid == existing().senderUid
+        && incoming().senderMemberId == existing().senderMemberId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && isCellLeader(existing().cellId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['accessCode', 'allowedEmails', 'updatedAt']);
+      allow delete: if isSignedIn()
+        && isValidId(messageId)
+        && (
+          isCellLeader(existing().cellId)
+          || (
+            existing().senderUid == request.auth.uid
+            && isCellParticipant(existing().cellId)
+          )
+        );
     }
   }
 }

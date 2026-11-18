@@ -1,4 +1,4 @@
-import { signInAnonymously } from 'firebase/auth';
+import { signInAnonymously, signOut } from 'firebase/auth';
 import {
   collection,
   deleteDoc,
@@ -20,16 +20,17 @@ import {
   MAX_TRAINERS_PER_CELL,
   type ActivityLevel,
   type BaptismStatus,
-  type CellLookup,
   type CellMember,
   type CellRole,
   type CellRosterEntry,
   type CellWing,
   type CellWorkspace,
+  type ChatMediaType,
   type MemberAccessCode,
   type MemberPrivateInfo,
   type MonthlyPlan,
   type NotificationType,
+  type PlanEventType,
   type PlanStatus,
   type ReportStatus,
   type StudyCategory,
@@ -198,88 +199,146 @@ export async function syncMemberAccessCodeDoc(params: {
   }
 }
 
+export async function resolveCellAccessCode(
+  cell: CellWorkspace,
+): Promise<string> {
+  const existingCode = (cell.accessCode || '').trim().toUpperCase();
+  if (existingCode.length >= 6 && /^[A-Z0-9-]+$/.test(existingCode)) {
+    return existingCode;
+  }
+
+  const freshSnap = await getDoc(doc(db, 'cells', cell.id));
+  if (freshSnap.exists()) {
+    const freshCode = String(freshSnap.data()?.accessCode || '')
+      .trim()
+      .toUpperCase();
+    if (freshCode.length >= 6 && /^[A-Z0-9-]+$/.test(freshCode)) {
+      return freshCode;
+    }
+  }
+
+  const newCode = generateAccessCode(cell.name);
+  await updateDoc(doc(db, 'cells', cell.id), {
+    accessCode: newCode,
+    updatedAt: serverTimestamp(),
+  });
+  return newCode;
+}
+
 export async function ensureCellAccessCodeBackfill(
   cell: CellWorkspace,
   members: CellMember[],
 ): Promise<string> {
-  let activeCode = cell.accessCode;
+  const activeCode = await resolveCellAccessCode(cell);
 
-  if (!activeCode) {
-    activeCode = generateAccessCode(cell.name);
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'cells', cell.id), {
-      accessCode: activeCode,
-      updatedAt: serverTimestamp(),
-    });
-
-    const colNames = [
-      'members',
-      'monthlyPlans',
-      'meetingReports',
-      'studyMaterials',
-      'notifications',
-    ] as const;
-    for (const colName of colNames) {
-      const snap = await getDocs(
-        query(collection(db, colName), where('cellId', '==', cell.id)),
-      );
-      for (const d of snap.docs) {
-        batch.update(d.ref, {
-          accessCode: activeCode,
-          updatedAt: serverTimestamp(),
-        });
-      }
-    }
-    await batch.commit();
-  }
+  const colNames = [
+    'members',
+    'monthlyPlans',
+    'meetingReports',
+    'studyMaterials',
+    'notifications',
+    'cellMessages',
+  ] as const;
 
   const usedCodes = new Set<string>(
     members.map((m) => m.memberCode).filter((c): c is string => Boolean(c)),
   );
-  const missingMemberCode = members.filter((m) => !m.memberCode);
-  let updatedMembers = members;
+  const generatedCodesByMemberId = new Map<string, string>();
+  const updatedMembers = members.map((m) => {
+    if (m.memberCode) return m;
+    const newCode = generateMemberCode(m.fullName, usedCodes);
+    generatedCodesByMemberId.set(m.id, newCode);
+    return { ...m, memberCode: newCode, wing: m.wing || 'Masculina' };
+  });
 
-  if (missingMemberCode.length > 0) {
-    const batchCodes = writeBatch(db);
-    updatedMembers = members.map((m) => {
-      if (m.memberCode) return m;
-      const newCode = generateMemberCode(m.fullName, usedCodes);
-      batchCodes.update(doc(db, 'members', m.id), {
-        memberCode: newCode,
-        updatedAt: serverTimestamp(),
-      });
-      batchCodes.set(doc(db, 'memberAccessCodes', newCode), {
-        memberCode: newCode,
-        memberId: m.id,
-        fullName: clampStr(m.fullName, FIELD_LIMITS.fullName),
-        cellId: cell.id,
-        cellName: clampStr(cell.name, FIELD_LIMITS.name),
-        accessCode: activeCode,
-        ownerUid: cell.ownerUid,
-        updatedAt: serverTimestamp(),
-      });
-      return { ...m, memberCode: newCode };
-    });
-    await batchCodes.commit();
+  const batch = writeBatch(db);
+  let hasBatchWrites = false;
+
+  const normalizedCellAllowed = Array.from(
+    new Set(
+      [cell.ownerEmail, ...(cell.allowedEmails || [])]
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ).slice(0, MAX_ALLOWED_EMAILS);
+
+  for (const colName of colNames) {
+    const snap = await getDocs(
+      query(collection(db, colName), where('ownerUid', '==', cell.ownerUid)),
+    );
+    for (const d of snap.docs) {
+      const docData = d.data() as Record<string, unknown>;
+      if (docData.cellId !== cell.id) continue;
+
+      const currentAllowed = Array.isArray(docData.allowedEmails)
+        ? (docData.allowedEmails as string[]).map((e) => e.trim().toLowerCase())
+        : [];
+      const needsAllowedSync =
+        normalizedCellAllowed.some((e) => !currentAllowed.includes(e)) ||
+        currentAllowed.length !== normalizedCellAllowed.length;
+
+      if (colName === 'members') {
+        const missingAccess = docData.accessCode !== activeCode;
+        const missingMemberCode = !docData.memberCode;
+        const missingWing = !docData.wing;
+        if (missingAccess || missingMemberCode || missingWing || needsAllowedSync) {
+          const memberCode =
+            (docData.memberCode as string) ||
+            generatedCodesByMemberId.get(d.id) ||
+            generateMemberCode(String(docData.fullName || 'Membro'), usedCodes);
+          const wing = (docData.wing as CellWing) || 'Masculina';
+          batch.update(d.ref, {
+            accessCode: activeCode,
+            memberCode,
+            wing,
+            allowedEmails: normalizedCellAllowed,
+            updatedAt: serverTimestamp(),
+          });
+          batch.set(doc(db, 'memberAccessCodes', memberCode), {
+            memberCode,
+            memberId: d.id,
+            fullName: clampStr(
+              String(docData.fullName || 'Membro'),
+              FIELD_LIMITS.fullName,
+            ),
+            cellId: cell.id,
+            cellName: clampStr(cell.name, FIELD_LIMITS.name),
+            accessCode: activeCode,
+            ownerUid: cell.ownerUid,
+            updatedAt: serverTimestamp(),
+          });
+          hasBatchWrites = true;
+        }
+      } else if (docData.accessCode !== activeCode || needsAllowedSync) {
+        batch.update(d.ref, {
+          accessCode: activeCode,
+          allowedEmails: normalizedCellAllowed,
+          updatedAt: serverTimestamp(),
+        });
+        hasBatchWrites = true;
+      }
+    }
+  }
+
+  if (hasBatchWrites) {
+    await batch.commit();
   }
 
   const lookupSnap = await getDoc(doc(db, 'cellLookup', activeCode));
-  if (!lookupSnap.exists() || missingMemberCode.length > 0) {
+  if (!lookupSnap.exists() || generatedCodesByMemberId.size > 0) {
     await syncCellLookup({ ...cell, accessCode: activeCode }, updatedMembers);
   }
 
   return activeCode;
 }
 
-export async function signInMemberByName(
+export async function signInMemberByCode(
   rawCode: string,
-  rawFullName: string = '',
 ): Promise<{ cellId: string; memberId: string; fullName: string; accessCode: string }> {
   const code = rawCode.trim().toUpperCase();
-  const targetName = normalizeName(rawFullName);
 
   if (code.length < 6) {
-    throw new Error('Informe o código gerado na sua ficha de cadastro (ex.: MARI-4821).');
+    throw new Error('Informe o código individual gerado na sua ficha (ex.: MARI-4821).');
   }
 
   let cred;
@@ -296,74 +355,32 @@ export async function signInMemberByName(
     throw err;
   }
 
-  // 1. Try individual generated member access code first
   const memberCodeSnap = await getDoc(doc(db, 'memberAccessCodes', code));
-  if (memberCodeSnap.exists()) {
-    const entry = memberCodeSnap.data() as MemberAccessCode;
-    if (targetName.length > 0 && normalizeName(entry.fullName) !== targetName) {
-      throw new Error(
-        'O nome digitado não corresponde a este código de ficha. Verifique com o Líder da Célula.',
-      );
-    }
-
-    await setDoc(doc(db, 'memberSessions', cred.user.uid), {
-      uid: cred.user.uid,
-      cellId: entry.cellId,
-      accessCode: entry.accessCode,
-      memberId: entry.memberId,
-      fullName: entry.fullName,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-
-    return {
-      cellId: entry.cellId,
-      memberId: entry.memberId,
-      fullName: entry.fullName,
-      accessCode: entry.accessCode,
-    };
-  }
-
-  // 2. Fallback to shared cell code + pre-registered full name
-  const lookupSnap = await getDoc(doc(db, 'cellLookup', code));
-  if (!lookupSnap.exists()) {
+  if (!memberCodeSnap.exists()) {
+    await signOut(auth).catch(() => undefined);
     throw new Error(
-      'Código não encontrado. Confirme o código gerado na sua ficha com o Líder da Célula.',
+      'Código de acesso não encontrado. Confira o código individual gerado na sua ficha com o Líder da Célula.',
     );
   }
 
-  if (targetName.length < 2) {
-    throw new Error(
-      'Ao entrar com o código geral da célula, informe também o seu nome completo cadastrado.',
-    );
-  }
-
-  const lookup = lookupSnap.data() as CellLookup;
-  const matched = lookup.memberRoster.find(
-    (entry) => normalizeName(entry.fullName) === targetName,
-  );
-
-  if (!matched) {
-    throw new Error(
-      'Seu nome ainda não está cadastrado nesta célula. Peça ao Líder para criar sua ficha primeiro.',
-    );
-  }
+  const entry = memberCodeSnap.data() as MemberAccessCode;
 
   await setDoc(doc(db, 'memberSessions', cred.user.uid), {
     uid: cred.user.uid,
-    cellId: lookup.cellId,
-    accessCode: lookup.accessCode,
-    memberId: matched.id,
-    fullName: matched.fullName,
+    cellId: entry.cellId,
+    accessCode: entry.accessCode,
+    memberCode: code,
+    memberId: entry.memberId,
+    fullName: entry.fullName,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
   return {
-    cellId: lookup.cellId,
-    memberId: matched.id,
-    fullName: matched.fullName,
-    accessCode: lookup.accessCode,
+    cellId: entry.cellId,
+    memberId: entry.memberId,
+    fullName: entry.fullName,
+    accessCode: entry.accessCode,
   };
 }
 
@@ -380,7 +397,7 @@ export async function createCellWorkspace(
 ): Promise<string> {
   const cellId = generateId('cell');
   const cellRef = doc(db, 'cells', cellId);
-  const ownerEmail = clampStr(user.email, FIELD_LIMITS.email);
+  const ownerEmail = clampStr(user.email, FIELD_LIMITS.email).toLowerCase();
   const allowedEmails = [ownerEmail];
   const trainerEmails: string[] = [];
   const secretaryEmails: string[] = [];
@@ -453,7 +470,7 @@ export async function createCellWorkspace(
       role: 'lider',
       wing: 'Masculina',
       mentorId: '',
-      menteeIds: input.seedExampleData ? [f1Id] : [],
+      menteeIds: [],
       activityLevel: 'Muito Ativo',
       isChurchMember: true,
       baptismStatus: 'Batizado',
@@ -523,7 +540,7 @@ export async function createCellWorkspace(
         updatedAt: serverTimestamp(),
       });
 
-      // Líder em Treinamento 2 (Ala Feminina, controla f3Id)
+      // Líder em Treinamento 2 (Ala Feminina, controla f1Id e f3Id)
       batch1.set(doc(db, 'members', t2Id), {
         cellId,
         ownerUid: user.uid,
@@ -534,7 +551,7 @@ export async function createCellWorkspace(
         role: 'lider_treinamento',
         wing: 'Feminina',
         mentorId: leaderId,
-        menteeIds: [f3Id],
+        menteeIds: [f1Id, f3Id],
         activityLevel: 'Muito Ativo',
         isChurchMember: true,
         baptismStatus: 'Batizado',
@@ -622,7 +639,7 @@ export async function createCellWorkspace(
         updatedAt: serverTimestamp(),
       });
 
-      // Filhinha 1 (Ala Feminina, vinculada ao Líder)
+      // Filhinha 1 (Ala Feminina, vinculada à Líder em Treinamento Beatriz)
       batch1.set(doc(db, 'members', f1Id), {
         cellId,
         ownerUid: user.uid,
@@ -632,7 +649,7 @@ export async function createCellWorkspace(
         fullName: 'Mariana Costa',
         role: 'filhinho',
         wing: 'Feminina',
-        mentorId: leaderId,
+        mentorId: t2Id,
         menteeIds: [],
         activityLevel: 'Ativo',
         isChurchMember: true,
@@ -766,7 +783,7 @@ export async function createCellWorkspace(
         { id: t2Id, fullName: 'Beatriz Almeida', memberCode: t2Code, role: 'lider_treinamento', wing: 'Feminina', mentorId: leaderId },
         { id: secId, fullName: 'Camila Ferreira', memberCode: secCode, role: 'secretario', wing: 'Feminina', mentorId: '' },
         { id: hostId, fullName: 'Marcos Silva', memberCode: hostCode, role: 'anfitriao', wing: 'Masculina', mentorId: '' },
-        { id: f1Id, fullName: 'Mariana Costa', memberCode: f1Code, role: 'filhinho', wing: 'Feminina', mentorId: leaderId },
+        { id: f1Id, fullName: 'Mariana Costa', memberCode: f1Code, role: 'filhinho', wing: 'Feminina', mentorId: t2Id },
         { id: f2Id, fullName: 'Rafael Oliveira', memberCode: f2Code, role: 'filhinho', wing: 'Masculina', mentorId: t1Id },
         { id: f3Id, fullName: 'Juliana Mendes', memberCode: f3Code, role: 'filhinho', wing: 'Feminina', mentorId: t2Id },
         { id: visId, fullName: 'Larissa Rocha', memberCode: visCode, role: 'visitante', wing: 'Feminina', mentorId: '' },
@@ -945,13 +962,15 @@ async function syncCellAccessListsAcrossCollections(
     'meetingReports',
     'studyMaterials',
     'notifications',
+    'cellMessages',
   ] as const;
 
   for (const colName of colNames) {
     const snap = await getDocs(
-      query(collection(db, colName), where('cellId', '==', cell.id)),
+      query(collection(db, colName), where('ownerUid', '==', cell.ownerUid)),
     );
     for (const d of snap.docs) {
+      if (d.data().cellId !== cell.id) continue;
       batch.update(d.ref, {
         allowedEmails: nextAllowedEmails,
         updatedAt: serverTimestamp(),
@@ -982,12 +1001,49 @@ export async function saveMemberWithPrivateInfo(params: {
     birthDate: string;
     baptismDate: string;
     notes: string;
+    profession?: string;
+    maritalStatus?: string;
+    emergencyContact?: string;
+    skillsOrInterests?: string;
+    prayerRequest?: string;
+    usefulInfo?: string;
   };
 }): Promise<{ memberId: string; memberCode: string }> {
   const { cell, existingMember, allMembers, currentUid, canManageRoles, data } =
     params;
 
-  const cleanEmail = clampStr(data.memberEmail, FIELD_LIMITS.email);
+  const cleanEmail = clampStr(data.memberEmail, FIELD_LIMITS.email).toLowerCase();
+  const normalizedTargetName = normalizeName(data.fullName);
+  if (normalizedTargetName.length < 2) {
+    throw new Error('Informe o nome completo do integrante.');
+  }
+
+  // Prevent duplicate member name within the same cell
+  const duplicateNameMember = allMembers.find(
+    (m) =>
+      m.id !== existingMember?.id &&
+      normalizeName(m.fullName) === normalizedTargetName,
+  );
+  if (duplicateNameMember) {
+    throw new Error(
+      `Já existe uma ficha cadastrada para "${duplicateNameMember.fullName}". Não é permitido duplicidade de integrantes.`,
+    );
+  }
+
+  // Prevent duplicate Google email across different members in the same cell
+  if (cleanEmail) {
+    const duplicateEmailMember = allMembers.find(
+      (m) =>
+        m.id !== existingMember?.id &&
+        (m.memberEmail || '').trim().toLowerCase() === cleanEmail,
+    );
+    if (duplicateEmailMember) {
+      throw new Error(
+        `O e-mail ${cleanEmail} já está associado à ficha de ${duplicateEmailMember.fullName}.`,
+      );
+    }
+  }
+
   const targetRole: CellRole = canManageRoles
     ? data.role
     : existingMember
@@ -996,13 +1052,20 @@ export async function saveMemberWithPrivateInfo(params: {
         ? data.role
         : 'filhinho';
 
+  if (targetRole === 'lider' && existingMember?.role !== 'lider') {
+    const existingLeader = allMembers.find((m) => m.role === 'lider');
+    if (existingLeader) {
+      throw new Error('A célula possui apenas um Líder Principal.');
+    }
+  }
+
   if (targetRole === 'lider_treinamento') {
     const currentTrainers = allMembers.filter(
       (m) => m.role === 'lider_treinamento' && m.id !== existingMember?.id,
     );
     if (currentTrainers.length >= MAX_TRAINERS_PER_CELL) {
       throw new Error(
-        `Limite atingido: a célula pode ter no máximo ${MAX_TRAINERS_PER_CELL} Líderes em Treinamento.`,
+        `Limite atingido: o Líder da Célula pode ter apenas ${MAX_TRAINERS_PER_CELL} Líderes em Treinamento.`,
       );
     }
   }
@@ -1010,10 +1073,13 @@ export async function saveMemberWithPrivateInfo(params: {
   const mentorId =
     targetRole === 'filhinho' ? clampStr(data.mentorId, FIELD_LIMITS.id) : '';
   if (targetRole === 'filhinho' && mentorId) {
+    if (mentorId === existingMember?.id) {
+      throw new Error('Um integrante não pode ser mentor de si mesmo.');
+    }
     const mentor = allMembers.find((m) => m.id === mentorId);
-    if (!mentor) {
+    if (!mentor || mentor.role !== 'lider_treinamento') {
       throw new Error(
-        'Selecione um Líder ou Líder em Treinamento válido como mentor.',
+        'Selecione um dos 3 Líderes em Treinamento como mentor deste filhinho.',
       );
     }
     const currentMentees = allMembers.filter(
@@ -1024,7 +1090,7 @@ export async function saveMemberWithPrivateInfo(params: {
     );
     if (currentMentees.length >= MAX_FILHINHOS_PER_MENTOR) {
       throw new Error(
-        `Limite atingido: ${mentor.fullName} já controla o máximo de ${MAX_FILHINHOS_PER_MENTOR} filhinhos.`,
+        `Limite atingido: o Líder em Treinamento ${mentor.fullName} já possui ${MAX_FILHINHOS_PER_MENTOR} filhinhos.`,
       );
     }
   }
@@ -1033,27 +1099,37 @@ export async function saveMemberWithPrivateInfo(params: {
   const usedCodes = new Set<string>(
     allMembers.map((m) => m.memberCode).filter((c): c is string => Boolean(c)),
   );
-  const memberCode =
+  let memberCode =
     existingMember?.memberCode ||
     generateMemberCode(data.fullName, usedCodes);
+
+  if (!existingMember?.memberCode) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const codeSnap = await getDoc(doc(db, 'memberAccessCodes', memberCode));
+      if (!codeSnap.exists() || codeSnap.data()?.memberId === memberId) {
+        break;
+      }
+      memberCode = generateMemberCode(data.fullName, usedCodes);
+    }
+  }
 
   const birthMonthDay =
     data.birthDate && data.birthDate.length === 10
       ? data.birthDate.slice(5, 10)
       : '';
 
-  let nextAllowed = [...cell.allowedEmails];
-  let nextTrainers = [...cell.trainerEmails];
-  let nextSecretaries = [...(cell.secretaryEmails || [])];
+  let nextAllowed = cell.allowedEmails.map((e) => e.trim().toLowerCase()).filter(Boolean);
+  let nextTrainers = cell.trainerEmails.map((e) => e.trim().toLowerCase()).filter(Boolean);
+  let nextSecretaries = (cell.secretaryEmails || []).map((e) => e.trim().toLowerCase()).filter(Boolean);
 
   if (canManageRoles) {
     const updatedOtherEmails = allMembers
       .filter((m) => m.id !== memberId)
-      .map((m) => m.memberEmail?.trim())
+      .map((m) => m.memberEmail?.trim().toLowerCase())
       .filter((e): e is string => Boolean(e));
 
     const emailSet = new Set<string>([
-      cell.ownerEmail,
+      cell.ownerEmail.trim().toLowerCase(),
       ...updatedOtherEmails,
       ...(cleanEmail ? [cleanEmail] : []),
     ]);
@@ -1064,10 +1140,10 @@ export async function saveMemberWithPrivateInfo(params: {
     for (const m of allMembers) {
       if (m.id === memberId) continue;
       if (m.role === 'lider_treinamento' && m.memberEmail?.trim()) {
-        trainerSet.add(m.memberEmail.trim());
+        trainerSet.add(m.memberEmail.trim().toLowerCase());
       }
       if (m.role === 'secretario' && m.memberEmail?.trim()) {
-        secSet.add(m.memberEmail.trim());
+        secSet.add(m.memberEmail.trim().toLowerCase());
       }
     }
     if (targetRole === 'lider_treinamento' && cleanEmail) {
@@ -1081,15 +1157,18 @@ export async function saveMemberWithPrivateInfo(params: {
   }
 
   try {
+    const resolvedAccessCode = await resolveCellAccessCode(cell);
+    const resolvedWing: CellWing = data.wing || existingMember?.wing || 'Masculina';
     const batch = writeBatch(db);
     const memberRef = doc(db, 'members', memberId);
     const privRef = doc(db, 'members', memberId, 'private', 'info');
 
     if (existingMember) {
       const updatePayload: Record<string, unknown> = {
+        accessCode: resolvedAccessCode,
         fullName: clampStr(data.fullName, FIELD_LIMITS.fullName),
         memberCode,
-        wing: data.wing,
+        wing: resolvedWing,
         mentorId,
         activityLevel: data.activityLevel,
         isChurchMember: data.isChurchMember,
@@ -1107,12 +1186,12 @@ export async function saveMemberWithPrivateInfo(params: {
       batch.set(memberRef, {
         cellId: cell.id,
         ownerUid: cell.ownerUid,
-        accessCode: cell.accessCode,
+        accessCode: resolvedAccessCode,
         memberCode,
         allowedEmails: nextAllowed,
         fullName: clampStr(data.fullName, FIELD_LIMITS.fullName),
         role: targetRole,
-        wing: data.wing,
+        wing: resolvedWing,
         mentorId,
         menteeIds: [],
         activityLevel: data.activityLevel,
@@ -1140,8 +1219,8 @@ export async function saveMemberWithPrivateInfo(params: {
     }
     if (mentorId && targetRole === 'filhinho') {
       const nextMentor = allMembers.find((m) => m.id === mentorId);
-      if (nextMentor && !nextMentor.menteeIds.includes(memberId)) {
-        const nextList = [...nextMentor.menteeIds, memberId];
+      if (nextMentor) {
+        const nextList = Array.from(new Set([...nextMentor.menteeIds, memberId]));
         if (nextList.length <= MAX_FILHINHOS_PER_MENTOR) {
           batch.update(doc(db, 'members', nextMentor.id), {
             menteeIds: nextList,
@@ -1166,6 +1245,24 @@ export async function saveMemberWithPrivateInfo(params: {
         notes: clampStr(data.notes, FIELD_LIMITS.notes),
         updatedAt: serverTimestamp(),
       };
+      if (data.profession !== undefined) {
+        privUpdate.profession = clampStr(data.profession, FIELD_LIMITS.profession);
+      }
+      if (data.maritalStatus !== undefined) {
+        privUpdate.maritalStatus = clampStr(data.maritalStatus, FIELD_LIMITS.maritalStatus);
+      }
+      if (data.emergencyContact !== undefined) {
+        privUpdate.emergencyContact = clampStr(data.emergencyContact, FIELD_LIMITS.emergencyContact);
+      }
+      if (data.skillsOrInterests !== undefined) {
+        privUpdate.skillsOrInterests = clampStr(data.skillsOrInterests, FIELD_LIMITS.skillsOrInterests);
+      }
+      if (data.prayerRequest !== undefined) {
+        privUpdate.prayerRequest = clampStr(data.prayerRequest, FIELD_LIMITS.prayerRequest);
+      }
+      if (data.usefulInfo !== undefined) {
+        privUpdate.usefulInfo = clampStr(data.usefulInfo, FIELD_LIMITS.usefulInfo);
+      }
       if (canManageRoles) {
         privUpdate.email = cleanEmail;
       }
@@ -1183,6 +1280,12 @@ export async function saveMemberWithPrivateInfo(params: {
             ? clampStr(data.baptismDate, 10)
             : '',
         notes: clampStr(data.notes, FIELD_LIMITS.notes),
+        profession: clampStr(data.profession, FIELD_LIMITS.profession),
+        maritalStatus: clampStr(data.maritalStatus, FIELD_LIMITS.maritalStatus),
+        emergencyContact: clampStr(data.emergencyContact, FIELD_LIMITS.emergencyContact),
+        skillsOrInterests: clampStr(data.skillsOrInterests, FIELD_LIMITS.skillsOrInterests),
+        prayerRequest: clampStr(data.prayerRequest, FIELD_LIMITS.prayerRequest),
+        usefulInfo: clampStr(data.usefulInfo, FIELD_LIMITS.usefulInfo),
         updatedAt: serverTimestamp(),
       });
     }
@@ -1236,13 +1339,14 @@ export async function saveMemberWithPrivateInfo(params: {
             updatedAt: Timestamp.now(),
           },
         ];
+    const cellWithCode = { ...cell, accessCode: resolvedAccessCode };
     await syncMemberAccessCodeDoc({
-      cell,
+      cell: cellWithCode,
       memberId,
       memberCode,
       fullName: data.fullName,
     });
-    await syncCellLookup(cell, updatedList);
+    await syncCellLookup(cellWithCode, updatedList);
 
     return { memberId, memberCode };
   } catch (error) {
@@ -1266,16 +1370,21 @@ export async function assignOrganogramPlacement(params: {
     ).length;
     if (trainersCount >= MAX_TRAINERS_PER_CELL) {
       throw new Error(
-        `A célula já possui o máximo de ${MAX_TRAINERS_PER_CELL} Líderes em Treinamento.`,
+        `O Líder da Célula pode ter apenas ${MAX_TRAINERS_PER_CELL} Líderes em Treinamento.`,
       );
     }
   }
 
   const effectiveMentorId = nextRole === 'filhinho' ? nextMentorId : '';
   if (nextRole === 'filhinho' && effectiveMentorId) {
+    if (effectiveMentorId === member.id) {
+      throw new Error('Um integrante não pode ser mentor de si mesmo.');
+    }
     const mentor = allMembers.find((m) => m.id === effectiveMentorId);
-    if (!mentor || (mentor.role !== 'lider' && mentor.role !== 'lider_treinamento')) {
-      throw new Error('O mentor deve ser o Líder da Célula ou um Líder em Treinamento.');
+    if (!mentor || mentor.role !== 'lider_treinamento') {
+      throw new Error(
+        'O mentor do filhinho deve ser um dos Líderes em Treinamento.',
+      );
     }
     const currentMentees = allMembers.filter(
       (m) =>
@@ -1285,14 +1394,16 @@ export async function assignOrganogramPlacement(params: {
     );
     if (currentMentees.length >= MAX_FILHINHOS_PER_MENTOR) {
       throw new Error(
-        `${mentor.fullName} já atingiu o limite máximo de ${MAX_FILHINHOS_PER_MENTOR} filhinhos.`,
+        `${mentor.fullName} já atingiu o limite de ${MAX_FILHINHOS_PER_MENTOR} filhinhos.`,
       );
     }
   }
 
   try {
+    const resolvedAccessCode = await resolveCellAccessCode(cell);
     const batch = writeBatch(db);
     batch.update(doc(db, 'members', member.id), {
+      accessCode: resolvedAccessCode,
       role: nextRole,
       wing: nextWing,
       mentorId: effectiveMentorId,
@@ -1311,12 +1422,12 @@ export async function assignOrganogramPlacement(params: {
 
     if (effectiveMentorId) {
       const newMentor = allMembers.find((m) => m.id === effectiveMentorId);
-      if (newMentor && !newMentor.menteeIds.includes(member.id)) {
+      if (newMentor) {
+        const dedupedMentees = Array.from(
+          new Set([...newMentor.menteeIds, member.id]),
+        ).slice(0, MAX_FILHINHOS_PER_MENTOR);
         batch.update(doc(db, 'members', newMentor.id), {
-          menteeIds: [...newMentor.menteeIds, member.id].slice(
-            0,
-            MAX_FILHINHOS_PER_MENTOR,
-          ),
+          menteeIds: dedupedMentees,
           updatedAt: serverTimestamp(),
         });
       }
@@ -1329,7 +1440,7 @@ export async function assignOrganogramPlacement(params: {
         ? { ...m, role: nextRole, wing: nextWing, mentorId: effectiveMentorId }
         : m,
     );
-    await syncCellLookup(cell, updatedMembers);
+    await syncCellLookup({ ...cell, accessCode: resolvedAccessCode }, updatedMembers);
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `members/${member.id}`);
   }
@@ -1346,6 +1457,82 @@ export async function fetchMemberPrivateInfo(
   } catch (error) {
     console.warn('Sem permissão para visualizar PII deste membro:', path, error);
     return null;
+  }
+}
+
+export async function saveOwnMemberFicha(params: {
+  cell: CellWorkspace;
+  member: CellMember;
+  data: {
+    phone: string;
+    address: string;
+    birthDate: string;
+    baptismStatus: BaptismStatus;
+    baptismDate: string;
+    profession: string;
+    maritalStatus: string;
+    emergencyContact: string;
+    skillsOrInterests: string;
+    prayerRequest: string;
+    usefulInfo: string;
+    notes: string;
+  };
+}): Promise<void> {
+  const { cell, member, data } = params;
+  const memberRef = doc(db, 'members', member.id);
+  const privRef = doc(db, 'members', member.id, 'private', 'info');
+
+  const cleanBirthDate =
+    data.birthDate && /^\d{4}-\d{2}-\d{2}$/.test(data.birthDate.trim())
+      ? data.birthDate.trim()
+      : '';
+  const birthMonthDay = cleanBirthDate ? cleanBirthDate.slice(5, 10) : '';
+  const cleanBaptismDate =
+    data.baptismStatus === 'Batizado' &&
+    data.baptismDate &&
+    /^\d{4}-\d{2}-\d{2}$/.test(data.baptismDate.trim())
+      ? data.baptismDate.trim()
+      : '';
+
+  try {
+    await updateDoc(memberRef, {
+      birthMonthDay,
+      baptismStatus: data.baptismStatus,
+      updatedAt: serverTimestamp(),
+    });
+
+    const privSnap = await getDoc(privRef);
+    const privFields = {
+      phone: clampStr(data.phone, FIELD_LIMITS.phone),
+      address: clampStr(data.address, FIELD_LIMITS.address),
+      birthDate: cleanBirthDate,
+      baptismDate: cleanBaptismDate,
+      notes: clampStr(data.notes, FIELD_LIMITS.notes),
+      profession: clampStr(data.profession, FIELD_LIMITS.profession),
+      maritalStatus: clampStr(data.maritalStatus, FIELD_LIMITS.maritalStatus),
+      emergencyContact: clampStr(data.emergencyContact, FIELD_LIMITS.emergencyContact),
+      skillsOrInterests: clampStr(data.skillsOrInterests, FIELD_LIMITS.skillsOrInterests),
+      prayerRequest: clampStr(data.prayerRequest, FIELD_LIMITS.prayerRequest),
+      usefulInfo: clampStr(data.usefulInfo, FIELD_LIMITS.usefulInfo),
+      updatedAt: serverTimestamp(),
+    };
+
+    if (privSnap.exists()) {
+      await updateDoc(privRef, privFields);
+    } else {
+      await setDoc(privRef, {
+        cellId: cell.id,
+        ownerUid: cell.ownerUid,
+        email: clampStr(member.memberEmail, FIELD_LIMITS.email),
+        ...privFields,
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.UPDATE,
+      `members/${member.id}/private/info`,
+    );
   }
 }
 
@@ -1377,9 +1564,9 @@ export async function deleteMemberRecord(
     const remaining = allMembers.filter((m) => m.id !== member.id);
     const nextAllowed = Array.from(
       new Set([
-        cell.ownerEmail,
+        cell.ownerEmail.trim().toLowerCase(),
         ...remaining
-          .map((m) => m.memberEmail?.trim())
+          .map((m) => m.memberEmail?.trim().toLowerCase())
           .filter((e): e is string => Boolean(e)),
       ]),
     ).slice(0, MAX_ALLOWED_EMAILS);
@@ -1387,14 +1574,14 @@ export async function deleteMemberRecord(
       new Set(
         remaining
           .filter((m) => m.role === 'lider_treinamento' && m.memberEmail?.trim())
-          .map((m) => m.memberEmail!.trim()),
+          .map((m) => m.memberEmail!.trim().toLowerCase()),
       ),
     ).slice(0, MAX_TRAINERS_PER_CELL);
     const nextSecretaries = Array.from(
       new Set(
         remaining
           .filter((m) => m.role === 'secretario' && m.memberEmail?.trim())
-          .map((m) => m.memberEmail!.trim()),
+          .map((m) => m.memberEmail!.trim().toLowerCase()),
       ),
     ).slice(0, 5);
 
@@ -1413,10 +1600,12 @@ export async function deleteMemberRecord(
 export async function saveMonthlyPlan(params: {
   cell: CellWorkspace;
   existingPlan?: MonthlyPlan | null;
+  existingPlans?: MonthlyPlan[];
   currentUid: string;
   data: {
     date: string;
     time: string;
+    eventType: PlanEventType;
     lessonTitle: string;
     lessonReference: string;
     responsibleName: string;
@@ -1430,15 +1619,41 @@ export async function saveMonthlyPlan(params: {
     status: PlanStatus;
   };
 }): Promise<string> {
-  const { cell, existingPlan, currentUid, data } = params;
+  const { cell, existingPlan, existingPlans, currentUid, data } = params;
   const planId = existingPlan?.id || generateId('plan');
   const monthKey = getMonthKey(data.date);
+  const eventType = data.eventType || 'Reunião de Célula';
+
+  if (existingPlans && data.status !== 'Cancelada') {
+    const duplicate = existingPlans.find((p) => {
+      if (p.id === existingPlan?.id || p.status === 'Cancelada') return false;
+      const pType = p.eventType || 'Reunião de Célula';
+      if (
+        p.date === data.date &&
+        eventType === 'Reunião de Célula' &&
+        pType === 'Reunião de Célula'
+      ) {
+        return true;
+      }
+      return (
+        p.date === data.date &&
+        p.time === data.time &&
+        normalizeName(p.lessonTitle) === normalizeName(data.lessonTitle)
+      );
+    });
+    if (duplicate) {
+      throw new Error(
+        `Já existe uma programação (${duplicate.eventType || 'Reunião de Célula'}) nesta data/horário. Edite o registro existente para evitar duplicidade.`,
+      );
+    }
+  }
   try {
     if (existingPlan) {
       await updateDoc(doc(db, 'monthlyPlans', planId), {
         date: clampStr(data.date, 10),
         monthKey,
         time: clampStr(data.time, 10),
+        eventType: data.eventType || 'Reunião de Célula',
         lessonTitle: clampStr(data.lessonTitle, FIELD_LIMITS.lessonTitle),
         lessonReference: clampStr(
           data.lessonReference,
@@ -1456,14 +1671,16 @@ export async function saveMonthlyPlan(params: {
         updatedAt: serverTimestamp(),
       });
     } else {
+      const resolvedAccessCode = await resolveCellAccessCode(cell);
       await setDoc(doc(db, 'monthlyPlans', planId), {
         cellId: cell.id,
         ownerUid: cell.ownerUid,
-        accessCode: cell.accessCode,
+        accessCode: resolvedAccessCode,
         allowedEmails: cell.allowedEmails,
         date: clampStr(data.date, 10),
         monthKey,
         time: clampStr(data.time, 10),
+        eventType: data.eventType || 'Reunião de Célula',
         lessonTitle: clampStr(data.lessonTitle, FIELD_LIMITS.lessonTitle),
         lessonReference: clampStr(
           data.lessonReference,
@@ -1546,10 +1763,11 @@ export async function saveMeetingReport(params: {
         updatedAt: serverTimestamp(),
       });
     } else {
+      const resolvedAccessCode = await resolveCellAccessCode(cell);
       batch.set(repRef, {
         cellId: cell.id,
         ownerUid: cell.ownerUid,
-        accessCode: cell.accessCode,
+        accessCode: resolvedAccessCode,
         allowedEmails: cell.allowedEmails,
         planId: clampStr(data.planId, FIELD_LIMITS.id),
         date: clampStr(data.date, 10),
@@ -1607,6 +1825,7 @@ export async function deleteMeetingReport(reportId: string): Promise<void> {
 export async function saveStudyMaterial(params: {
   cell: CellWorkspace;
   existingMaterial?: StudyMaterial | null;
+  existingMaterials?: StudyMaterial[];
   currentUid: string;
   authorName: string;
   data: {
@@ -1615,33 +1834,87 @@ export async function saveStudyMaterial(params: {
     summary: string;
     contentText: string;
     resourceUrl: string;
+    attachmentName?: string;
+    attachmentMime?: string;
+    attachmentDataUrl?: string;
     monthKey: string;
   };
 }): Promise<string> {
-  const { cell, existingMaterial, currentUid, authorName, data } = params;
+  const {
+    cell,
+    existingMaterial,
+    existingMaterials,
+    currentUid,
+    authorName,
+    data,
+  } = params;
+
+  if (existingMaterials) {
+    const dupMat = existingMaterials.find(
+      (m) =>
+        m.id !== existingMaterial?.id &&
+        normalizeName(m.title) === normalizeName(data.title) &&
+        (m.monthKey || '') === (data.monthKey || ''),
+    );
+    if (dupMat) {
+      throw new Error(
+        `Já existe um material de estudo com o título "${dupMat.title}" neste período.`,
+      );
+    }
+  }
+
   const materialId = existingMaterial?.id || generateId('mat');
+  const safeContent =
+    clampStr(data.contentText, FIELD_LIMITS.materialContent).length >= 5
+      ? clampStr(data.contentText, FIELD_LIMITS.materialContent)
+      : clampStr(
+          data.attachmentName
+            ? `Arquivo anexado: ${data.attachmentName}`
+            : data.title,
+          FIELD_LIMITS.materialContent,
+        ).padEnd(5, '.');
+  const safeAttachmentName = clampStr(
+    data.attachmentName,
+    FIELD_LIMITS.attachmentName,
+  );
+  const safeAttachmentMime = clampStr(
+    data.attachmentMime,
+    FIELD_LIMITS.attachmentMime,
+  );
+  const safeAttachmentDataUrl = clampStr(
+    data.attachmentDataUrl,
+    FIELD_LIMITS.attachmentDataUrl,
+  );
+
   try {
     if (existingMaterial) {
       await updateDoc(doc(db, 'studyMaterials', materialId), {
         title: clampStr(data.title, FIELD_LIMITS.lessonTitle),
         category: data.category,
         summary: clampStr(data.summary, FIELD_LIMITS.materialSummary),
-        contentText: clampStr(data.contentText, FIELD_LIMITS.materialContent),
+        contentText: safeContent,
         resourceUrl: clampStr(data.resourceUrl, FIELD_LIMITS.resourceUrl),
+        attachmentName: safeAttachmentName,
+        attachmentMime: safeAttachmentMime,
+        attachmentDataUrl: safeAttachmentDataUrl,
         monthKey: clampStr(data.monthKey, 7),
         updatedAt: serverTimestamp(),
       });
     } else {
+      const resolvedAccessCode = await resolveCellAccessCode(cell);
       await setDoc(doc(db, 'studyMaterials', materialId), {
         cellId: cell.id,
         ownerUid: cell.ownerUid,
-        accessCode: cell.accessCode,
+        accessCode: resolvedAccessCode,
         allowedEmails: cell.allowedEmails,
         title: clampStr(data.title, FIELD_LIMITS.lessonTitle),
         category: data.category,
         summary: clampStr(data.summary, FIELD_LIMITS.materialSummary),
-        contentText: clampStr(data.contentText, FIELD_LIMITS.materialContent),
+        contentText: safeContent,
         resourceUrl: clampStr(data.resourceUrl, FIELD_LIMITS.resourceUrl),
+        attachmentName: safeAttachmentName,
+        attachmentMime: safeAttachmentMime,
+        attachmentDataUrl: safeAttachmentDataUrl,
         monthKey: clampStr(data.monthKey, 7),
         authorName: clampStr(authorName || 'Liderança', FIELD_LIMITS.fullName),
         createdBy: currentUid,
@@ -1653,7 +1926,7 @@ export async function saveStudyMaterial(params: {
       await setDoc(doc(db, 'notifications', notifId), {
         cellId: cell.id,
         ownerUid: cell.ownerUid,
-        accessCode: cell.accessCode,
+        accessCode: resolvedAccessCode,
         allowedEmails: cell.allowedEmails,
         type: 'material_novo',
         title: `Novo material: ${clampStr(data.title, 100)}`,
@@ -1700,10 +1973,11 @@ export async function createManualReminder(params: {
   const { cell, currentUid, data } = params;
   const notifId = generateId('notif');
   try {
+    const resolvedAccessCode = await resolveCellAccessCode(cell);
     await setDoc(doc(db, 'notifications', notifId), {
       cellId: cell.id,
       ownerUid: cell.ownerUid,
-      accessCode: cell.accessCode,
+      accessCode: resolvedAccessCode,
       allowedEmails: cell.allowedEmails,
       type: data.type,
       title: clampStr(data.title, FIELD_LIMITS.notificationTitle),
@@ -1753,6 +2027,140 @@ export async function deleteNotificationRecord(
       error,
       OperationType.DELETE,
       `notifications/${notificationId}`,
+    );
+  }
+}
+
+export async function sendCellChatMessage(params: {
+  cell: CellWorkspace;
+  senderUid: string;
+  senderMemberId?: string;
+  senderName: string;
+  senderRole: CellRole;
+  senderWing: CellWing;
+  text: string;
+  media?: {
+    mediaType: ChatMediaType;
+    mediaName?: string;
+    mediaMime?: string;
+    mediaDataUrl?: string;
+    mediaUrl?: string;
+    mediaDurationSec?: number;
+  } | null;
+  mentions?: {
+    memberIds: string[];
+    names: string[];
+  } | null;
+  replyTo?: { id: string; senderName: string; preview: string } | null;
+}): Promise<string> {
+  const {
+    cell,
+    senderUid,
+    senderMemberId,
+    senderName,
+    senderRole,
+    senderWing,
+    text,
+    media,
+    mentions,
+    replyTo,
+  } = params;
+  const cleanText = clampStr(text, FIELD_LIMITS.chatMessage);
+  const mediaType: ChatMediaType = media?.mediaType || '';
+  const safeMediaDataUrl = clampStr(
+    media?.mediaDataUrl,
+    FIELD_LIMITS.chatMediaDataUrl,
+  );
+  const safeMediaUrl = clampStr(media?.mediaUrl, FIELD_LIMITS.resourceUrl);
+  const hasValidMedia =
+    Boolean(mediaType) &&
+    (safeMediaDataUrl.length > 10 || safeMediaUrl.length > 5);
+
+  if (!cleanText && !hasValidMedia) {
+    throw new Error('Digite uma mensagem ou envie um áudio, foto ou vídeo.');
+  }
+
+  const messageId = generateId('msg');
+  try {
+    const resolvedAccessCode = await resolveCellAccessCode(cell);
+    const payload: Record<string, unknown> = {
+      cellId: cell.id,
+      ownerUid: cell.ownerUid,
+      accessCode: resolvedAccessCode,
+      allowedEmails: cell.allowedEmails,
+      senderUid,
+      senderMemberId: clampStr(senderMemberId, FIELD_LIMITS.id),
+      senderName: clampStr(senderName || 'Membro', FIELD_LIMITS.fullName),
+      senderRole,
+      senderWing: senderWing || 'Masculina',
+      text: cleanText,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    if (hasValidMedia) {
+      payload.mediaType = mediaType;
+      if (media?.mediaName) {
+        payload.mediaName = clampStr(
+          media.mediaName,
+          FIELD_LIMITS.attachmentName,
+        );
+      }
+      if (media?.mediaMime) {
+        payload.mediaMime = clampStr(
+          media.mediaMime,
+          FIELD_LIMITS.attachmentMime,
+        );
+      }
+      if (safeMediaDataUrl) {
+        payload.mediaDataUrl = safeMediaDataUrl;
+      }
+      if (safeMediaUrl) {
+        payload.mediaUrl = safeMediaUrl;
+      }
+      if (
+        typeof media?.mediaDurationSec === 'number' &&
+        Number.isFinite(media.mediaDurationSec)
+      ) {
+        payload.mediaDurationSec = Math.max(
+          0,
+          Math.min(3600, Math.round(media.mediaDurationSec)),
+        );
+      }
+    }
+    if (mentions && mentions.memberIds.length > 0) {
+      payload.mentionedMemberIds = mentions.memberIds
+        .map((id) => clampStr(id, FIELD_LIMITS.id))
+        .filter(Boolean)
+        .slice(0, 50);
+      payload.mentionedNames = mentions.names
+        .map((n) => clampStr(n, FIELD_LIMITS.fullName))
+        .filter(Boolean)
+        .slice(0, 50);
+    }
+    if (replyTo?.id) {
+      payload.replyToId = clampStr(replyTo.id, FIELD_LIMITS.id);
+      payload.replyToName = clampStr(replyTo.senderName, FIELD_LIMITS.fullName);
+      payload.replyToPreview = clampStr(replyTo.preview, 160);
+    }
+    await setDoc(doc(db, 'cellMessages', messageId), payload);
+    return messageId;
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.CREATE,
+      `cellMessages/${messageId}`,
+    );
+  }
+}
+
+export async function deleteCellChatMessage(messageId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'cellMessages', messageId));
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.DELETE,
+      `cellMessages/${messageId}`,
     );
   }
 }

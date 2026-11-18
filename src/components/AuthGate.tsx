@@ -9,13 +9,12 @@ import {
   UserCheck,
   Users,
 } from 'lucide-react';
-import { signInMemberByName } from '../lib/cellService';
+import { signInMemberByCode } from '../lib/cellService';
 import { auth, googleProvider } from '../lib/firebase';
 
 export function AuthGate() {
-  const [loginMode, setLoginMode] = useState<'name' | 'google'>('name');
+  const [loginMode, setLoginMode] = useState<'code' | 'google'>('code');
   const [accessCode, setAccessCode] = useState('');
-  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [anonDisabledHelp, setAnonDisabledHelp] = useState(false);
@@ -40,13 +39,13 @@ export function AuthGate() {
     }
   };
 
-  const handleNameSignIn = async (e: React.FormEvent) => {
+  const handleCodeSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg(null);
     setAnonDisabledHelp(false);
     try {
-      await signInMemberByName(accessCode, fullName);
+      await signInMemberByCode(accessCode);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Falha ao entrar.';
       if (msg === 'ANON_AUTH_DISABLED') {
@@ -64,40 +63,40 @@ export function AuthGate() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col lg:flex-row items-stretch">
-      <div className="flex-1 flex flex-col justify-between p-8 sm:p-12 lg:p-16 bg-white border-b lg:border-b-0 lg:border-r border-slate-200">
+      <div className="flex-1 flex flex-col justify-between p-5 sm:p-10 lg:p-16 bg-white border-b lg:border-b-0 lg:border-r border-slate-200">
         <div>
           <div className="text-xl font-bold tracking-tight text-slate-900">
             Célula Viva
           </div>
         </div>
 
-        <div className="max-w-xl my-10">
-          <p className="text-xs font-medium text-teal-700 mb-3">
+        <div className="max-w-xl my-6 sm:my-10">
+          <p className="text-xs font-medium text-teal-700 mb-2 sm:mb-3">
             Gestão de Célula · Organograma e Produtividade
           </p>
-          <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight leading-tight mb-4">
+          <h1 className="text-2xl sm:text-4xl font-bold text-slate-900 tracking-tight leading-tight mb-3 sm:mb-4">
             Acesso para toda a célula, com organograma e planificação.
           </h1>
           <p className="text-sm sm:text-base text-slate-600 leading-relaxed mb-6">
-            Membros pré-cadastrados entram apenas com o <strong>Código da Ficha</strong> gerado pelo Líder (sem e-mail) para visualizar a <strong>Visão Geral</strong>, <strong>Planificação</strong> e <strong>Progresso</strong> em modo somente leitura.
+            Membros pré-cadastrados entram exclusivamente com o <strong>Código Individual</strong> gerado na sua ficha de cadastro (sem e-mail e sem precisar digitar o nome) para visualizar a <strong>Visão Geral</strong>, <strong>Planificação</strong> e <strong>Progresso</strong> em modo somente leitura.
           </p>
 
           {/* Login Mode Tabs */}
-          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg mb-6">
+          <div className="grid grid-cols-2 sm:inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg mb-6 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => {
-                setLoginMode('name');
+                setLoginMode('code');
                 setErrorMsg(null);
                 setAnonDisabledHelp(false);
               }}
-              className={`px-4 py-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-                loginMode === 'name'
+              className={`min-h-[40px] px-2.5 sm:px-4 py-2 text-[11px] sm:text-xs font-semibold rounded-md transition-colors cursor-pointer text-center ${
+                loginMode === 'code'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Entrar com Nome (Membros)
+              Entrar com Código
             </button>
             <button
               type="button"
@@ -106,13 +105,13 @@ export function AuthGate() {
                 setErrorMsg(null);
                 setAnonDisabledHelp(false);
               }}
-              className={`px-4 py-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+              className={`min-h-[40px] px-2.5 sm:px-4 py-2 text-[11px] sm:text-xs font-semibold rounded-md transition-colors cursor-pointer text-center ${
                 loginMode === 'google'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Acesso Liderança (Google)
+              Liderança (Google)
             </button>
           </div>
 
@@ -125,7 +124,7 @@ export function AuthGate() {
               {anonDisabledHelp && (
                 <div className="pt-2 border-t border-red-200 text-slate-700 space-y-1">
                   <p className="font-semibold">
-                    Como ativar o acesso por Nome (1 minuto):
+                    Como ativar o acesso por Código (1 minuto):
                   </p>
                   <ol className="list-decimal pl-4 space-y-0.5">
                     <li>
@@ -144,39 +143,31 @@ export function AuthGate() {
                     <li>Ative a chave e clique em <strong>Salvar</strong>.</li>
                   </ol>
                   <p className="text-[11px] text-slate-500 pt-1">
-                    Alternativa imediata: o Líder pode entrar com Google e usar o botão &ldquo;Acesso por Nome&rdquo; dentro do painel para o membro preencher sua ficha no mesmo dispositivo.
+                    Alternativa imediata: o Líder pode entrar com Google e usar o botão &ldquo;Entrar com Código&rdquo; no menu lateral para visualizar a conta do membro.
                   </p>
                 </div>
               )}
             </div>
           )}
 
-          {loginMode === 'name' ? (
-            <form onSubmit={handleNameSignIn} className="space-y-3 max-w-md mb-8">
+          {loginMode === 'code' ? (
+            <form onSubmit={handleCodeSignIn} className="space-y-4 max-w-md mb-8">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Código de Acesso Gerado na Ficha *
                 </label>
                 <input
                   type="text"
                   required
+                  autoFocus
                   value={accessCode}
                   onChange={(e) => setAccessCode(e.target.value.toUpperCase())}
                   placeholder="Ex.: MARI-4821"
-                  className="w-full px-3.5 py-2.5 text-sm font-mono uppercase border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                  className="w-full px-3.5 py-2.5 text-sm font-mono uppercase tracking-wide border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
                 />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Seu Nome Completo (opcional ao usar o código da ficha)
-                </label>
-                <input
-                  type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Ex.: Mariana Costa"
-                  className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
-                />
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  Digite apenas o código único gerado pelo Líder ao criar sua ficha.
+                </p>
               </div>
               <button
                 type="submit"

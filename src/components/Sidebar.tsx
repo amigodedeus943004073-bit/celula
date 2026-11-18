@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   GitFork,
   LogOut,
+  MessageCircle,
   Settings,
   UserCheck,
   UserRoundPen,
@@ -21,7 +22,8 @@ export type NavSection =
   | 'organogram'
   | 'members'
   | 'ficha'
-  | 'materials';
+  | 'materials'
+  | 'chat';
 
 interface SidebarProps {
   activeSection: NavSection;
@@ -32,6 +34,7 @@ interface SidebarProps {
   effectiveRole: CellRole;
   actualRole: CellRole;
   unreadAlertsCount: number;
+  unreadChatCount?: number;
   userEmail: string;
   userName: string;
   memberCode?: string;
@@ -52,6 +55,7 @@ const NAV_ITEMS: Array<{
   icon: React.ComponentType<{ className?: string }>;
 }> = [
   { id: 'overview', label: 'Visão Geral & Lembretes', icon: Bell },
+  { id: 'chat', label: 'Bate-Papo da Célula', icon: MessageCircle },
   { id: 'ficha', label: 'Minha Ficha', icon: UserRoundPen },
   { id: 'organogram', label: 'Organograma da Célula', icon: GitFork },
   { id: 'planning', label: 'Planificação & Progresso', icon: CalendarRange },
@@ -69,6 +73,7 @@ export function Sidebar({
   effectiveRole,
   actualRole,
   unreadAlertsCount,
+  unreadChatCount = 0,
   userEmail,
   userName,
   memberCode,
@@ -88,8 +93,8 @@ export function Sidebar({
       )
     : NAV_ITEMS;
   const sidebarBody = (
-    <div className="flex flex-col h-full bg-white border-r border-slate-200 w-[264px]">
-      <div className="px-5 py-5 border-b border-slate-200 flex items-center justify-between gap-2">
+    <div className="flex flex-col h-full bg-white border-r border-slate-200 w-[276px] max-w-[85vw]">
+      <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap">
             Célula Viva
@@ -102,7 +107,7 @@ export function Sidebar({
           type="button"
           onClick={onCloseMobile}
           aria-label="Fechar menu"
-          className="lg:hidden p-1.5 text-slate-500 hover:text-slate-900 rounded-md cursor-pointer"
+          className="lg:hidden min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
@@ -119,7 +124,7 @@ export function Sidebar({
                 <select
                   value={activeCell.id}
                   onChange={(e) => onSelectCell(e.target.value)}
-                  className="flex-1 min-w-0 px-2.5 py-2 text-xs font-medium text-slate-800 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+                  className="flex-1 min-w-0 min-h-[40px] px-2.5 py-2 text-xs font-medium text-slate-800 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
                 >
                   {cells.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -130,9 +135,12 @@ export function Sidebar({
                 {canManageCellSettings && (
                   <button
                     type="button"
-                    onClick={onOpenCellSettings}
+                    onClick={() => {
+                      onOpenCellSettings();
+                      onCloseMobile();
+                    }}
                     title="Configurações da Célula"
-                    className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer shrink-0"
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer shrink-0"
                   >
                     <Settings className="w-4 h-4" />
                   </button>
@@ -141,8 +149,11 @@ export function Sidebar({
               {actualRole === 'lider' && (
                 <button
                   type="button"
-                  onClick={onOpenNewCell}
-                  className="mt-2 text-xs font-medium text-teal-700 hover:text-teal-800 cursor-pointer"
+                  onClick={() => {
+                    onOpenNewCell();
+                    onCloseMobile();
+                  }}
+                  className="mt-2 py-1 text-xs font-medium text-teal-700 hover:text-teal-800 cursor-pointer"
                 >
                   + Criar nova célula
                 </button>
@@ -174,7 +185,7 @@ export function Sidebar({
         </div>
       )}
 
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeSection === item.id;
@@ -186,9 +197,9 @@ export function Sidebar({
                 onSelectSection(item.id);
                 onCloseMobile();
               }}
-              className={`w-full flex items-center justify-between gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors cursor-pointer text-left ${
+              className={`w-full min-h-[44px] flex items-center justify-between gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-colors cursor-pointer text-left ${
                 isActive
-                  ? 'bg-teal-50 text-teal-800'
+                  ? 'bg-teal-50 text-teal-800 font-semibold'
                   : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
               }`}
             >
@@ -205,12 +216,17 @@ export function Sidebar({
                   {unreadAlertsCount}
                 </span>
               )}
+              {item.id === 'chat' && unreadChatCount > 0 && (
+                <span className="text-xs font-mono tabular-nums font-semibold text-teal-700 shrink-0">
+                  {unreadChatCount}
+                </span>
+              )}
             </button>
           );
         })}
       </nav>
 
-      <div className="p-4 border-t border-slate-200 bg-slate-50/70 space-y-2.5">
+      <div className="p-4 pb-safe border-t border-slate-200 bg-slate-50/70 space-y-2.5">
         <div>
           <div className="text-xs font-semibold text-slate-900 truncate">
             {userName}
@@ -231,17 +247,17 @@ export function Sidebar({
               onOpenNameSwitch();
               onCloseMobile();
             }}
-            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+            className="w-full min-h-[42px] inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
           >
             <UserCheck className="w-3.5 h-3.5" />
-            Entrar como Membro (Nome)
+            Entrar com Código (Membro)
           </button>
         )}
 
         <button
           type="button"
           onClick={onSignOut}
-          className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+          className="w-full min-h-[42px] inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
         >
           <LogOut className="w-3.5 h-3.5" />
           Sair da conta
@@ -252,11 +268,13 @@ export function Sidebar({
 
   return (
     <>
-      <aside className="hidden lg:block shrink-0">{sidebarBody}</aside>
+      <aside className="hidden lg:block shrink-0 sticky top-0 h-screen">
+        {sidebarBody}
+      </aside>
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
           <div
-            className="fixed inset-0 bg-slate-900/40"
+            className="fixed inset-0 bg-slate-900/45 backdrop-blur-[1px]"
             onClick={onCloseMobile}
           />
           <div className="relative z-10 h-full">{sidebarBody}</div>

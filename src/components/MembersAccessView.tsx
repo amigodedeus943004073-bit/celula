@@ -108,10 +108,7 @@ export function MembersAccessView({
   );
 
   const potentialMentors = useMemo(
-    () =>
-      members.filter(
-        (m) => m.role === 'lider' || m.role === 'lider_treinamento',
-      ),
+    () => members.filter((m) => m.role === 'lider_treinamento'),
     [members],
   );
 
@@ -309,12 +306,12 @@ export function MembersAccessView({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {cell.accessCode && (
             <button
               type="button"
               onClick={handleCopyCode}
-              className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center justify-center gap-2 px-3 py-2 min-h-[40px] text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer whitespace-nowrap"
             >
               <span>Código:</span>
               <strong className="font-mono text-slate-900">
@@ -329,10 +326,10 @@ export function MembersAccessView({
           )}
 
           {actualRole === 'lider' && (
-            <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
-              <Eye className="w-4 h-4 text-slate-500" />
+            <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-2 min-h-[40px]">
+              <Eye className="w-4 h-4 text-slate-500 shrink-0" />
               <label className="text-xs text-slate-600 whitespace-nowrap">
-                Simular cargo:
+                Simular:
               </label>
               <select
                 value={effectiveRole}
@@ -353,7 +350,7 @@ export function MembersAccessView({
             <button
               type="button"
               onClick={openCreateModal}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 min-h-[42px] text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
               <Plus className="w-4 h-4" />
               Criar Ficha de Cadastro
@@ -405,37 +402,37 @@ export function MembersAccessView({
       )}
 
       {/* Hierarchy Summary Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="text-xs font-medium text-slate-500">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
+          <div className="text-[11px] sm:text-xs font-medium text-slate-500">
             Líderes em Treinamento
           </div>
-          <div className="text-2xl font-bold text-slate-900 tabular-nums mt-1.5">
+          <div className="text-xl sm:text-2xl font-bold text-slate-900 tabular-nums mt-1.5">
             {trainersCount} / {MAX_TRAINERS_PER_CELL}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Cada líder em treinamento controla até {MAX_FILHINHOS_PER_MENTOR} filhinhos.
+          <p className="text-[11px] sm:text-xs text-slate-500 mt-1">
+            Até {MAX_FILHINHOS_PER_MENTOR} filhinhos cada.
           </p>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="text-xs font-medium text-slate-500">
-            Ala Feminina / Ala Masculina
+        <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
+          <div className="text-[11px] sm:text-xs font-medium text-slate-500">
+            Alas (Fem · Masc)
           </div>
-          <div className="text-2xl font-bold text-slate-900 tabular-nums mt-1.5">
+          <div className="text-xl sm:text-2xl font-bold text-slate-900 tabular-nums mt-1.5">
             {members.filter((m) => (m.wing || 'Masculina') === 'Feminina').length} ·{' '}
             {members.filter((m) => (m.wing || 'Masculina') === 'Masculina').length}
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Integrantes na Ala Feminina e na Ala Masculina.
+          <p className="text-[11px] sm:text-xs text-slate-500 mt-1">
+            Feminina e Masculina.
           </p>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5">
-          <div className="text-xs font-medium text-slate-500">
+        <div className="col-span-2 sm:col-span-1 bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
+          <div className="text-[11px] sm:text-xs font-medium text-slate-500">
             Seu Nível Atual
           </div>
-          <div className="text-lg font-bold text-teal-800 mt-1.5">
+          <div className="text-base sm:text-lg font-bold text-teal-800 mt-1">
             {ROLE_LABELS[effectiveRole]}
           </div>
           <p className="text-xs text-slate-500 mt-1">
@@ -457,15 +454,15 @@ export function MembersAccessView({
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar membro pelo nome..."
-            className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
+            className="w-full pl-9 pr-3 py-2.5 min-h-[42px] text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
           <select
             value={wingFilter}
             onChange={(e) => setWingFilter(e.target.value as 'Todas' | CellWing)}
-            className="px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg"
+            className="px-3 py-2 min-h-[40px] text-xs font-medium bg-white border border-slate-200 rounded-lg"
           >
             <option value="Todas">Todas as Alas</option>
             <option value="Feminina">Ala Feminina</option>
@@ -475,7 +472,7 @@ export function MembersAccessView({
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value as 'todos' | CellRole)}
-            className="px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg"
+            className="px-3 py-2 min-h-[40px] text-xs font-medium bg-white border border-slate-200 rounded-lg"
           >
             <option value="todos">Todos os Cargos</option>
             <option value="lider">Líder da Célula</option>
@@ -492,7 +489,126 @@ export function MembersAccessView({
       {/* Directory Table + Detail Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Mobile Member Cards */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {filteredMembers.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500">
+                Nenhum integrante encontrado com os filtros atuais.
+              </div>
+            ) : (
+              filteredMembers.map((m) => {
+                const mentor = m.mentorId
+                  ? members.find((x) => x.id === m.mentorId)
+                  : null;
+                const canEditThis =
+                  permissions.canManageRolesAndTrainers ||
+                  (permissions.canManageAllMembers &&
+                    (m.role === 'filhinho' ||
+                      m.role === 'visitante' ||
+                      m.role === 'membro'));
+
+                return (
+                  <div
+                    key={m.id}
+                    onClick={() => setSelectedMember(m)}
+                    className={`p-4 space-y-2.5 cursor-pointer transition-colors ${
+                      selectedMember?.id === m.id
+                        ? 'bg-teal-50/50'
+                        : 'hover:bg-slate-50/70'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-slate-900 truncate">
+                          {m.fullName}
+                        </div>
+                        <div className="text-xs text-slate-600 mt-0.5">
+                          {ROLE_LABELS[m.role]} · Ala {m.wing || 'Masculina'}
+                        </div>
+                      </div>
+                      {m.memberCode && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyMemberCode(m.memberCode!);
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-mono font-semibold text-slate-800 bg-slate-100 border border-slate-200 rounded shrink-0 cursor-pointer"
+                        >
+                          {m.memberCode}
+                          {copiedMemberCode === m.memberCode ? (
+                            <Check className="w-3 h-3 text-emerald-700" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-slate-400" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{m.activityLevel}</span>
+                        <span aria-hidden="true">·</span>
+                        <span
+                          className={
+                            m.baptismStatus === 'Batizado'
+                              ? 'text-emerald-700 font-medium'
+                              : m.baptismStatus === 'Em Preparação'
+                                ? 'text-amber-700 font-medium'
+                                : 'text-slate-500'
+                          }
+                        >
+                          {m.baptismStatus}
+                        </span>
+                        {mentor && (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span>Mentor: {mentor.fullName.split(' ')[0]}</span>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        {canEditThis && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditModal(m);
+                            }}
+                            title="Editar cadastro"
+                            className="min-h-[36px] min-w-[36px] inline-flex items-center justify-center text-slate-600 hover:text-slate-900 bg-slate-50 rounded-lg cursor-pointer"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {permissions.canManageRolesAndTrainers &&
+                          m.role !== 'lider' && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteMemberRecord(cell, m, members);
+                                if (selectedMember?.id === m.id) {
+                                  setSelectedMember(null);
+                                }
+                              }}
+                              title="Remover membro"
+                              className="min-h-[36px] min-w-[36px] inline-flex items-center justify-center text-slate-400 hover:text-red-600 bg-slate-50 rounded-lg cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
@@ -602,8 +718,8 @@ export function MembersAccessView({
           </div>
         </div>
 
-        {/* Member Detail Card */}
-        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-6">
+        {/* Desktop Member Detail Card */}
+        <div className="hidden lg:block lg:col-span-5 bg-white border border-slate-200 rounded-xl p-6">
           {selectedMember ? (
             <div className="space-y-4">
               <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-100">
@@ -685,7 +801,57 @@ export function MembersAccessView({
                             : '—'}
                         </dd>
                       </div>
+                      <div>
+                        <dt className="text-slate-500">Profissão / Atuação</dt>
+                        <dd className="font-medium text-slate-900 mt-0.5">
+                          {selectedPrivate?.profession || '—'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Estado Civil</dt>
+                        <dd className="font-medium text-slate-900 mt-0.5">
+                          {selectedPrivate?.maritalStatus || '—'}
+                        </dd>
+                      </div>
+                      {selectedPrivate?.emergencyContact && (
+                        <div className="col-span-2">
+                          <dt className="text-slate-500">Contato de Emergência</dt>
+                          <dd className="font-medium text-slate-900 mt-0.5">
+                            {selectedPrivate.emergencyContact}
+                          </dd>
+                        </div>
+                      )}
+                      {selectedPrivate?.skillsOrInterests && (
+                        <div className="col-span-2">
+                          <dt className="text-slate-500">Dons e Áreas para Servir</dt>
+                          <dd className="font-medium text-slate-900 mt-0.5">
+                            {selectedPrivate.skillsOrInterests}
+                          </dd>
+                        </div>
+                      )}
                     </dl>
+
+                    {selectedPrivate?.prayerRequest && (
+                      <div className="pt-3 border-t border-slate-100">
+                        <h3 className="font-semibold text-slate-700 mb-1">
+                          Pedido de Oração
+                        </h3>
+                        <p className="text-slate-700 leading-relaxed whitespace-pre-line">
+                          {selectedPrivate.prayerRequest}
+                        </p>
+                      </div>
+                    )}
+
+                    {selectedPrivate?.usefulInfo && (
+                      <div className="pt-3 border-t border-slate-100">
+                        <h3 className="font-semibold text-slate-700 mb-1">
+                          Outras Informações Úteis
+                        </h3>
+                        <p className="text-slate-700 leading-relaxed whitespace-pre-line">
+                          {selectedPrivate.usefulInfo}
+                        </p>
+                      </div>
+                    )}
 
                     <div className="pt-4 border-t border-slate-100">
                       <h3 className="font-semibold text-slate-700 mb-1.5">
@@ -715,15 +881,218 @@ export function MembersAccessView({
         </div>
       </div>
 
+      {/* Mobile Member Detail Bottom Sheet */}
+      {selectedMember && (
+        <div
+          className="lg:hidden fixed inset-0 z-50 bg-slate-900/50 flex items-end p-0"
+          onClick={() => setSelectedMember(null)}
+        >
+          <div
+            className="bg-white border-t border-slate-200 rounded-t-2xl w-full max-h-[85vh] overflow-y-auto p-5 pb-safe space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-teal-700">
+                  {ROLE_LABELS[selectedMember.role]} · Ala{' '}
+                  {selectedMember.wing || 'Masculina'}
+                </div>
+                <h2 className="text-lg font-bold text-slate-900 mt-0.5 truncate">
+                  {selectedMember.fullName}
+                </h2>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {selectedMember.activityLevel} ·{' '}
+                  {selectedMember.isChurchMember
+                    ? 'Membro da Igreja'
+                    : 'Não membro da igreja'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedMember(null)}
+                aria-label="Fechar ficha"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {selectedMember.memberCode && (
+              <button
+                type="button"
+                onClick={() => handleCopyMemberCode(selectedMember.memberCode!)}
+                className="w-full min-h-[42px] inline-flex items-center justify-center gap-2 px-3 py-2 text-xs font-mono font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg cursor-pointer"
+              >
+                <span>Código da ficha: {selectedMember.memberCode}</span>
+                {copiedMemberCode === selectedMember.memberCode ? (
+                  <Check className="w-4 h-4 text-emerald-700" />
+                ) : (
+                  <Copy className="w-4 h-4 text-slate-500" />
+                )}
+              </button>
+            )}
+
+            {permissions.canViewMemberPII ||
+            selectedMember.id === currentMemberId ||
+            (selectedMember.memberEmail &&
+              selectedMember.memberEmail.toLowerCase() ===
+                currentEmail.toLowerCase()) ? (
+              loadingPrivate ? (
+                <p className="text-xs text-slate-500 py-4">
+                  Carregando ficha detalhada...
+                </p>
+              ) : (
+                <div className="space-y-4 text-xs">
+                  <dl className="grid grid-cols-2 gap-3.5">
+                    <div>
+                      <dt className="text-slate-500">Data de Nascimento</dt>
+                      <dd className="font-mono tabular-nums font-semibold text-slate-900 mt-0.5">
+                        {selectedPrivate?.birthDate
+                          ? formatDatePt(selectedPrivate.birthDate)
+                          : 'A preencher'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Telefone</dt>
+                      <dd className="font-mono tabular-nums font-semibold text-slate-900 mt-0.5">
+                        {selectedPrivate?.phone || 'A preencher'}
+                      </dd>
+                    </div>
+                    <div className="col-span-2">
+                      <dt className="text-slate-500">Endereço Atualizado</dt>
+                      <dd className="font-medium text-slate-900 mt-0.5">
+                        {selectedPrivate?.address || 'A preencher'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Status de Batismo</dt>
+                      <dd className="font-semibold text-slate-900 mt-0.5">
+                        {selectedMember.baptismStatus}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Data de Batismo</dt>
+                      <dd className="font-mono tabular-nums font-semibold text-slate-900 mt-0.5">
+                        {selectedPrivate?.baptismDate
+                          ? formatDatePt(selectedPrivate.baptismDate)
+                          : '—'}
+                      </dd>
+                    </div>
+                      <div>
+                        <dt className="text-slate-500">Profissão / Atuação</dt>
+                        <dd className="font-medium text-slate-900 mt-0.5">
+                          {selectedPrivate?.profession || '—'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Estado Civil</dt>
+                        <dd className="font-medium text-slate-900 mt-0.5">
+                          {selectedPrivate?.maritalStatus || '—'}
+                        </dd>
+                      </div>
+                      {selectedPrivate?.emergencyContact && (
+                        <div className="col-span-2">
+                          <dt className="text-slate-500">Contato de Emergência</dt>
+                          <dd className="font-medium text-slate-900 mt-0.5">
+                            {selectedPrivate.emergencyContact}
+                          </dd>
+                        </div>
+                      )}
+                      {selectedPrivate?.skillsOrInterests && (
+                        <div className="col-span-2">
+                          <dt className="text-slate-500">Dons e Áreas para Servir</dt>
+                          <dd className="font-medium text-slate-900 mt-0.5">
+                            {selectedPrivate.skillsOrInterests}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+
+                    {selectedPrivate?.prayerRequest && (
+                      <div className="pt-3 border-t border-slate-100">
+                        <h3 className="font-semibold text-slate-700 mb-1">
+                          Pedido de Oração
+                        </h3>
+                        <p className="text-slate-700 leading-relaxed whitespace-pre-line">
+                          {selectedPrivate.prayerRequest}
+                        </p>
+                      </div>
+                    )}
+
+                    {selectedPrivate?.usefulInfo && (
+                      <div className="pt-3 border-t border-slate-100">
+                        <h3 className="font-semibold text-slate-700 mb-1">
+                          Outras Informações Úteis
+                        </h3>
+                        <p className="text-slate-700 leading-relaxed whitespace-pre-line">
+                          {selectedPrivate.usefulInfo}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="pt-3 border-t border-slate-100">
+                      <h3 className="font-semibold text-slate-700 mb-1">
+                        Observações Detalhadas
+                      </h3>
+                      <p className="text-slate-700 leading-relaxed whitespace-pre-line">
+                        {selectedPrivate?.notes ||
+                          'Nenhuma observação registrada.'}
+                      </p>
+                    </div>
+                  </div>
+              )
+            ) : (
+              <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 flex items-start gap-3">
+                <Lock className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Dados pessoais de outros membros são restritos à liderança. Você pode consultar sua própria ficha na aba <strong>Minha Ficha</strong>.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* RBAC Matrix */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-2">
-          <Shield className="w-4 h-4 text-teal-700" />
+        <div className="px-5 sm:px-6 py-4 border-b border-slate-200 flex items-center gap-2">
+          <Shield className="w-4 h-4 text-teal-700 shrink-0" />
           <h2 className="text-base font-semibold text-slate-900">
             Permissões por Categoria no Organograma
           </h2>
         </div>
-        <div className="overflow-x-auto">
+        {/* Mobile RBAC summary cards */}
+        <div className="md:hidden divide-y divide-slate-100 text-xs">
+          <div className="p-4 space-y-1">
+            <div className="font-semibold text-slate-900">Líder da Célula</div>
+            <p className="text-slate-600">
+              Controle completo: distribui organograma e alas, cria fichas com código e gerencia toda a planificação e relatórios.
+            </p>
+          </div>
+          <div className="p-4 space-y-1">
+            <div className="font-semibold text-slate-900">
+              Líder em Treinamento (máx. 3)
+            </div>
+            <p className="text-slate-600">
+              Controla seus 3 filhinhos, gera códigos, auxilia na planificação, materiais e presença.
+            </p>
+          </div>
+          <div className="p-4 space-y-1">
+            <div className="font-semibold text-slate-900">Secretário(a)</div>
+            <p className="text-slate-600">
+              Acesso total a lembretes/estudos e registro de atas e frequência das reuniões.
+            </p>
+          </div>
+          <div className="p-4 space-y-1">
+            <div className="font-semibold text-slate-900">
+              Anfitrião / Filhinho / Visitante
+            </div>
+            <p className="text-slate-600">
+              Acesso somente visualização pelo código da ficha para Visão Geral, Planificação, Progresso e Estudos.
+            </p>
+          </div>
+        </div>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 font-semibold text-slate-600">
@@ -746,8 +1115,8 @@ export function MembersAccessView({
                 <td className="py-2.5 px-4 font-medium">Ficha cadastral e código de acesso</td>
                 <td className="py-2.5 px-4 text-emerald-700 font-semibold">Cria, gera código e edita todas</td>
                 <td className="py-2.5 px-4 text-emerald-700 font-semibold">Cadastra filhinhos e gera código</td>
-                <td className="py-2.5 px-4">Visualização</td>
-                <td className="py-2.5 px-4">Somente leitura (sem alteração)</td>
+                <td className="py-2.5 px-4">Visualização + edita sua própria</td>
+                <td className="py-2.5 px-4">Edita apenas a própria ficha</td>
               </tr>
               <tr>
                 <td className="py-2.5 px-4 font-medium">Organograma, distribuição de alas e filhinhos (máx. 3)</td>
@@ -770,11 +1139,11 @@ export function MembersAccessView({
 
       {/* Member Form Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-xl w-full max-w-2xl p-6 sm:p-8 my-8">
-            <div className="flex items-start justify-between gap-4 mb-6">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl w-full max-w-2xl p-5 sm:p-8 sm:my-8 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4 mb-5">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900">
                   {editingMember
                     ? 'Editar Ficha do Membro'
                     : 'Criar Ficha de Cadastro do Membro'}
@@ -786,7 +1155,7 @@ export function MembersAccessView({
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="p-2 text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -856,7 +1225,7 @@ export function MembersAccessView({
                 {role === 'filhinho' && (
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Mentor Responsável (Líder ou Líder em Treinamento — máx. 3)
+                      Líder em Treinamento Mentor (máx. {MAX_FILHINHOS_PER_MENTOR} filhinhos por líder)
                     </label>
                     <select
                       value={mentorId}
@@ -867,7 +1236,14 @@ export function MembersAccessView({
                       {potentialMentors.map((pm) => {
                         const count = filhinhoCountByMentor.get(pm.id) || 0;
                         return (
-                          <option key={pm.id} value={pm.id}>
+                          <option
+                            key={pm.id}
+                            value={pm.id}
+                            disabled={
+                              count >= MAX_FILHINHOS_PER_MENTOR &&
+                              editingMember?.mentorId !== pm.id
+                            }
+                          >
                             {pm.fullName} · Ala {pm.wing || 'Masculina'} ({count}/{MAX_FILHINHOS_PER_MENTOR})
                           </option>
                         );
@@ -990,7 +1366,7 @@ export function MembersAccessView({
                     maxLength={200}
                     value={memberEmail}
                     onChange={(e) => setMemberEmail(e.target.value)}
-                    placeholder="Opcional: membros sem e-mail entram pelo Nome"
+                    placeholder="Opcional: membros sem e-mail entram apenas com o código da ficha"
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg disabled:bg-slate-100"
                   />
                 </div>
@@ -1009,18 +1385,18 @@ export function MembersAccessView({
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 pb-safe">
                 <button
                   type="button"
                   onClick={() => setModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
+                  className="px-4 py-2.5 min-h-[42px] text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer"
+                  className="px-5 py-2.5 min-h-[42px] text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer"
                 >
                   {saving ? 'Salvando...' : 'Salvar Cadastro'}
                 </button>
