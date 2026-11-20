@@ -268,11 +268,11 @@ export function Sidebar({
 
   return (
     <>
-      <aside className="hidden lg:block shrink-0 sticky top-0 h-screen">
+      <aside className="hidden lg:block shrink-0 sticky top-0 h-screen print:hidden">
         {sidebarBody}
       </aside>
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
+        <div className="fixed inset-0 z-50 lg:hidden flex print:hidden">
           <div
             className="fixed inset-0 bg-slate-900/45 backdrop-blur-[1px]"
             onClick={onCloseMobile}

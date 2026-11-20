@@ -77,6 +77,10 @@ export const FIELD_LIMITS = {
   skillsOrInterests: 300,
   prayerRequest: 600,
   usefulInfo: 1000,
+  photoDataUrl: 150000,
+  challengeTitle: 140,
+  challengeDescription: 800,
+  challengeNote: 500,
 } as const;
 
 export const ROLE_LABELS: Record<CellRole, string> = {
@@ -87,6 +91,16 @@ export const ROLE_LABELS: Record<CellRole, string> = {
   filhinho: 'Filhinho(a)',
   visitante: 'Visitante',
   membro: 'Membro',
+};
+
+export const ROLE_HIERARCHY_ORDER: Record<CellRole, number> = {
+  lider: 0,
+  lider_treinamento: 1,
+  secretario: 2,
+  anfitriao: 3,
+  filhinho: 4,
+  visitante: 5,
+  membro: 6,
 };
 
 export interface UserProfile {
@@ -172,6 +186,7 @@ export interface CellMember {
   isChurchMember: boolean;
   baptismStatus: BaptismStatus;
   birthMonthDay?: string;
+  photoDataUrl?: string;
   memberEmail?: string;
   createdBy: string;
   createdAt: Timestamp;
@@ -309,6 +324,52 @@ export interface CellMessage {
   replyToId?: string;
   replyToName?: string;
   replyToPreview?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export type ChallengeCategory =
+  | 'Leitura Bíblica'
+  | 'Oração & Jejum'
+  | 'Visita & Cuidado'
+  | 'Evangelismo'
+  | 'Serviço';
+
+export type ChallengeStatus = 'Ativo' | 'Encerrado';
+
+export type ChallengeResponseStatus = 'Em Andamento' | 'Concluído';
+
+export interface CellChallenge {
+  id: string;
+  cellId: string;
+  ownerUid: string;
+  accessCode?: string;
+  allowedEmails: string[];
+  title: string;
+  description: string;
+  category: ChallengeCategory;
+  startDate: string;
+  endDate: string;
+  status: ChallengeStatus;
+  authorName: string;
+  createdBy: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface ChallengeResponse {
+  id: string;
+  cellId: string;
+  ownerUid: string;
+  accessCode: string;
+  allowedEmails: string[];
+  challengeId: string;
+  memberUid: string;
+  memberId: string;
+  memberName: string;
+  memberRole: CellRole;
+  status: ChallengeResponseStatus;
+  note: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Search, UserCheck, X } from 'lucide-react';
-import { ROLE_LABELS, type CellMember } from '../types/cell';
+import { Check, ChevronDown, Search, X } from 'lucide-react';
+import {
+  ROLE_HIERARCHY_ORDER,
+  ROLE_LABELS,
+  type CellMember,
+} from '../types/cell';
+import { MemberAvatar } from './MemberAvatar';
 
 interface MemberPickerFieldProps {
   label: string;
@@ -45,7 +50,13 @@ export function MemberPickerField({
   }, [open]);
 
   const sortedMembers = useMemo(
-    () => [...members].sort((a, b) => a.fullName.localeCompare(b.fullName)),
+    () =>
+      [...members].sort((a, b) => {
+        if (ROLE_HIERARCHY_ORDER[a.role] !== ROLE_HIERARCHY_ORDER[b.role]) {
+          return ROLE_HIERARCHY_ORDER[a.role] - ROLE_HIERARCHY_ORDER[b.role];
+        }
+        return a.fullName.localeCompare(b.fullName);
+      }),
     [members],
   );
 
@@ -91,7 +102,12 @@ export function MemberPickerField({
         >
           {value ? (
             <span className="flex items-center gap-2 min-w-0">
-              <UserCheck className="w-4 h-4 text-teal-700 shrink-0" />
+              <MemberAvatar
+                name={value}
+                photoDataUrl={matchedMember?.photoDataUrl}
+                wing={matchedMember?.wing}
+                size="xs"
+              />
               <span className="font-medium text-slate-900 truncate">
                 {value}
               </span>
@@ -171,10 +187,18 @@ export function MemberPickerField({
                         : 'hover:bg-slate-50 text-slate-800'
                     }`}
                   >
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{m.fullName}</div>
-                      <div className="text-[11px] text-slate-500 truncate">
-                        {ROLE_LABELS[m.role]} · Ala {m.wing || 'Masculina'}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <MemberAvatar
+                        name={m.fullName}
+                        photoDataUrl={m.photoDataUrl}
+                        wing={m.wing}
+                        size="xs"
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{m.fullName}</div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {ROLE_LABELS[m.role]} · Ala {m.wing || 'Masculina'}
+                        </div>
                       </div>
                     </div>
                     {isSelected && (

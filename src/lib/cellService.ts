@@ -25,6 +25,9 @@ import {
   type CellRosterEntry,
   type CellWing,
   type CellWorkspace,
+  type ChallengeCategory,
+  type ChallengeResponseStatus,
+  type ChallengeStatus,
   type ChatMediaType,
   type MemberAccessCode,
   type MemberPrivateInfo,
@@ -238,6 +241,8 @@ export async function ensureCellAccessCodeBackfill(
     'studyMaterials',
     'notifications',
     'cellMessages',
+    'cellChallenges',
+    'challengeResponses',
   ] as const;
 
   const usedCodes = new Set<string>(
@@ -963,6 +968,8 @@ async function syncCellAccessListsAcrossCollections(
     'studyMaterials',
     'notifications',
     'cellMessages',
+    'cellChallenges',
+    'challengeResponses',
   ] as const;
 
   for (const colName of colNames) {
@@ -1007,6 +1014,7 @@ export async function saveMemberWithPrivateInfo(params: {
     skillsOrInterests?: string;
     prayerRequest?: string;
     usefulInfo?: string;
+    photoDataUrl?: string;
   };
 }): Promise<{ memberId: string; memberCode: string }> {
   const { cell, existingMember, allMembers, currentUid, canManageRoles, data } =
@@ -1176,6 +1184,12 @@ export async function saveMemberWithPrivateInfo(params: {
         birthMonthDay,
         updatedAt: serverTimestamp(),
       };
+      if (data.photoDataUrl !== undefined) {
+        updatePayload.photoDataUrl = clampStr(
+          data.photoDataUrl,
+          FIELD_LIMITS.photoDataUrl,
+        );
+      }
       if (canManageRoles) {
         updatePayload.role = targetRole;
         updatePayload.memberEmail = cleanEmail;
@@ -1183,7 +1197,7 @@ export async function saveMemberWithPrivateInfo(params: {
       }
       batch.update(memberRef, updatePayload);
     } else {
-      batch.set(memberRef, {
+      const createPayload: Record<string, unknown> = {
         cellId: cell.id,
         ownerUid: cell.ownerUid,
         accessCode: resolvedAccessCode,
@@ -1202,7 +1216,14 @@ export async function saveMemberWithPrivateInfo(params: {
         createdBy: currentUid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      };
+      if (data.photoDataUrl) {
+        createPayload.photoDataUrl = clampStr(
+          data.photoDataUrl,
+          FIELD_LIMITS.photoDataUrl,
+        );
+      }
+      batch.set(memberRef, createPayload);
     }
 
     const prevMentorId = existingMember?.mentorId || '';
@@ -1402,13 +1423,31 @@ export async function assignOrganogramPlacement(params: {
   try {
     const resolvedAccessCode = await resolveCellAccessCode(cell);
     const batch = writeBatch(db);
-    batch.update(doc(db, 'members', member.id), {
+    const isLeavingTrainer =
+      member.role === 'lider_treinamento' && nextRole !== 'lider_treinamento';
+
+    const memberUpdates: Record<string, unknown> = {
       accessCode: resolvedAccessCode,
       role: nextRole,
       wing: nextWing,
       mentorId: effectiveMentorId,
       updatedAt: serverTimestamp(),
-    });
+    };
+    if (isLeavingTrainer) {
+      memberUpdates.menteeIds = [];
+    }
+    batch.update(doc(db, 'members', member.id), memberUpdates);
+
+    if (isLeavingTrainer) {
+      for (const mentee of allMembers) {
+        if (mentee.role === 'filhinho' && mentee.mentorId === member.id) {
+          batch.update(doc(db, 'members', mentee.id), {
+            mentorId: '',
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+    }
 
     if (member.mentorId && member.mentorId !== effectiveMentorId) {
       const oldMentor = allMembers.find((m) => m.id === member.mentorId);
@@ -1435,11 +1474,52 @@ export async function assignOrganogramPlacement(params: {
 
     await batch.commit();
 
-    const updatedMembers = allMembers.map((m) =>
-      m.id === member.id
-        ? { ...m, role: nextRole, wing: nextWing, mentorId: effectiveMentorId }
-        : m,
-    );
+    const updatedMembers = allMembers.map((m) => {
+      if (m.id === member.id) {
+        return {
+          ...m,
+          role: nextRole,
+          wing: nextWing,
+          mentorId: effectiveMentorId,
+          menteeIds: isLeavingTrainer ? [] : m.menteeIds,
+        };
+      }
+      if (isLeavingTrainer && m.role === 'filhinho' && m.mentorId === member.id) {
+        return { ...m, mentorId: '' };
+      }
+      return m;
+    });
+
+    if (member.memberEmail?.trim()) {
+      const nextTrainers = Array.from(
+        new Set(
+          updatedMembers
+            .filter(
+              (m) => m.role === 'lider_treinamento' && m.memberEmail?.trim(),
+            )
+            .map((m) => m.memberEmail!.trim().toLowerCase()),
+        ),
+      ).slice(0, MAX_TRAINERS_PER_CELL);
+      const nextSecretaries = Array.from(
+        new Set(
+          updatedMembers
+            .filter((m) => m.role === 'secretario' && m.memberEmail?.trim())
+            .map((m) => m.memberEmail!.trim().toLowerCase()),
+        ),
+      ).slice(0, 5);
+      if (
+        JSON.stringify(nextTrainers) !== JSON.stringify(cell.trainerEmails) ||
+        JSON.stringify(nextSecretaries) !==
+          JSON.stringify(cell.secretaryEmails || [])
+      ) {
+        await updateDoc(doc(db, 'cells', cell.id), {
+          trainerEmails: nextTrainers,
+          secretaryEmails: nextSecretaries,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+
     await syncCellLookup({ ...cell, accessCode: resolvedAccessCode }, updatedMembers);
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `members/${member.id}`);
@@ -1476,6 +1556,7 @@ export async function saveOwnMemberFicha(params: {
     prayerRequest: string;
     usefulInfo: string;
     notes: string;
+    photoDataUrl?: string;
   };
 }): Promise<void> {
   const { cell, member, data } = params;
@@ -1495,11 +1576,18 @@ export async function saveOwnMemberFicha(params: {
       : '';
 
   try {
-    await updateDoc(memberRef, {
+    const memberPatch: Record<string, unknown> = {
       birthMonthDay,
       baptismStatus: data.baptismStatus,
       updatedAt: serverTimestamp(),
-    });
+    };
+    if (data.photoDataUrl !== undefined) {
+      memberPatch.photoDataUrl = clampStr(
+        data.photoDataUrl,
+        FIELD_LIMITS.photoDataUrl,
+      );
+    }
+    await updateDoc(memberRef, memberPatch);
 
     const privSnap = await getDoc(privRef);
     const privFields = {
@@ -2153,6 +2241,20 @@ export async function sendCellChatMessage(params: {
   }
 }
 
+export async function saveOwnMemberPhoto(
+  memberId: string,
+  photoDataUrl: string,
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'members', memberId), {
+      photoDataUrl: clampStr(photoDataUrl, FIELD_LIMITS.photoDataUrl),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `members/${memberId}`);
+  }
+}
+
 export async function deleteCellChatMessage(messageId: string): Promise<void> {
   try {
     await deleteDoc(doc(db, 'cellMessages', messageId));
@@ -2161,6 +2263,194 @@ export async function deleteCellChatMessage(messageId: string): Promise<void> {
       error,
       OperationType.DELETE,
       `cellMessages/${messageId}`,
+    );
+  }
+}
+
+export async function saveCellChallenge(params: {
+  cell: CellWorkspace;
+  existingChallenge?: { id: string } | null;
+  currentUid: string;
+  authorName: string;
+  data: {
+    title: string;
+    description: string;
+    category: ChallengeCategory;
+    startDate: string;
+    endDate: string;
+    status: ChallengeStatus;
+  };
+}): Promise<string> {
+  const { cell, existingChallenge, currentUid, authorName, data } = params;
+  const cleanTitle = clampStr(data.title, FIELD_LIMITS.challengeTitle);
+  const cleanDescription = clampStr(
+    data.description,
+    FIELD_LIMITS.challengeDescription,
+  );
+  if (cleanTitle.length < 2 || cleanDescription.length < 2) {
+    throw new Error('Informe o título e a descrição do desafio.');
+  }
+  if (!data.startDate || !data.endDate || data.endDate < data.startDate) {
+    throw new Error(
+      'A data final do desafio deve ser igual ou posterior à data inicial.',
+    );
+  }
+
+  const challengeId = existingChallenge?.id || generateId('chl');
+  try {
+    if (existingChallenge) {
+      await updateDoc(doc(db, 'cellChallenges', challengeId), {
+        title: cleanTitle,
+        description: cleanDescription,
+        category: data.category,
+        startDate: clampStr(data.startDate, 10),
+        endDate: clampStr(data.endDate, 10),
+        status: data.status,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      const resolvedAccessCode = await resolveCellAccessCode(cell);
+      await setDoc(doc(db, 'cellChallenges', challengeId), {
+        cellId: cell.id,
+        ownerUid: cell.ownerUid,
+        accessCode: resolvedAccessCode,
+        allowedEmails: cell.allowedEmails,
+        title: cleanTitle,
+        description: cleanDescription,
+        category: data.category,
+        startDate: clampStr(data.startDate, 10),
+        endDate: clampStr(data.endDate, 10),
+        status: data.status,
+        authorName: clampStr(authorName || 'Liderança', FIELD_LIMITS.fullName),
+        createdBy: currentUid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+    return challengeId;
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.WRITE,
+      `cellChallenges/${challengeId}`,
+    );
+  }
+}
+
+export async function toggleCellChallengeStatus(
+  challengeId: string,
+  status: ChallengeStatus,
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'cellChallenges', challengeId), {
+      status,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.UPDATE,
+      `cellChallenges/${challengeId}`,
+    );
+  }
+}
+
+export async function deleteCellChallenge(
+  challengeId: string,
+  responseIds: string[] = [],
+): Promise<void> {
+  try {
+    const batch = writeBatch(db);
+    for (const rid of responseIds) {
+      batch.delete(doc(db, 'challengeResponses', rid));
+    }
+    batch.delete(doc(db, 'cellChallenges', challengeId));
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.DELETE,
+      `cellChallenges/${challengeId}`,
+    );
+  }
+}
+
+export async function saveChallengeResponse(params: {
+  cell: CellWorkspace;
+  challengeId: string;
+  memberUid: string;
+  memberId?: string;
+  memberName: string;
+  memberRole: CellRole;
+  status: ChallengeResponseStatus;
+  note: string;
+}): Promise<string> {
+  const {
+    cell,
+    challengeId,
+    memberUid,
+    memberId,
+    memberName,
+    memberRole,
+    status,
+    note,
+  } = params;
+
+  const cleanMemberId = clampStr(memberId, FIELD_LIMITS.id);
+  const rawId = `${challengeId}_${cleanMemberId || memberUid}`;
+  const responseId = rawId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128);
+  const cleanNote = clampStr(note, FIELD_LIMITS.challengeNote);
+  const cleanName = clampStr(memberName || 'Membro', FIELD_LIMITS.fullName);
+
+  try {
+    const ref = doc(db, 'challengeResponses', responseId);
+    const existingSnap = await getDoc(ref);
+    if (existingSnap.exists()) {
+      await updateDoc(ref, {
+        status,
+        note: cleanNote,
+        memberName: cleanName,
+        memberRole,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      const resolvedAccessCode = await resolveCellAccessCode(cell);
+      await setDoc(ref, {
+        cellId: cell.id,
+        ownerUid: cell.ownerUid,
+        accessCode: resolvedAccessCode,
+        allowedEmails: cell.allowedEmails,
+        challengeId,
+        memberUid,
+        memberId: cleanMemberId,
+        memberName: cleanName,
+        memberRole,
+        status,
+        note: cleanNote,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+    return responseId;
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.WRITE,
+      `challengeResponses/${responseId}`,
+    );
+  }
+}
+
+export async function deleteChallengeResponse(
+  responseId: string,
+): Promise<void> {
+  try {
+    await deleteDoc(doc(db, 'challengeResponses', responseId));
+  } catch (error) {
+    handleFirestoreError(
+      error,
+      OperationType.DELETE,
+      `challengeResponses/${responseId}`,
     );
   }
 }

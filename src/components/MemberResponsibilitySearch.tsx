@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarCheck, Phone, Search, User, X } from 'lucide-react';
+import { CalendarCheck, Phone, Search, X } from 'lucide-react';
 import {
   formatDatePt,
   formatMonthLabelPt,
@@ -7,12 +7,14 @@ import {
 } from '../lib/cellAnalytics';
 import { fetchMemberPrivateInfo } from '../lib/cellService';
 import {
+  ROLE_HIERARCHY_ORDER,
   ROLE_LABELS,
   type CellMember,
   type MemberPrivateInfo,
   type MonthlyPlan,
   type RolePermissions,
 } from '../types/cell';
+import { MemberAvatar } from './MemberAvatar';
 
 interface MemberResponsibilitySearchProps {
   members: CellMember[];
@@ -45,7 +47,12 @@ export function MemberResponsibilitySearch({
             (m.memberCode && m.memberCode.toLowerCase().includes(q)),
         )
       : members;
-    return [...list].sort((a, b) => a.fullName.localeCompare(b.fullName));
+    return [...list].sort((a, b) => {
+      if (ROLE_HIERARCHY_ORDER[a.role] !== ROLE_HIERARCHY_ORDER[b.role]) {
+        return ROLE_HIERARCHY_ORDER[a.role] - ROLE_HIERARCHY_ORDER[b.role];
+      }
+      return a.fullName.localeCompare(b.fullName);
+    });
   }, [members, queryText]);
 
   const activeMember = useMemo(() => {
@@ -164,10 +171,13 @@ export function MemberResponsibilitySearch({
           {/* Member Profile Summary */}
           <div className="lg:col-span-5 bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3 text-xs">
             <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-lg bg-teal-700 text-white flex items-center justify-center shrink-0">
-                  <User className="w-4 h-4" />
-                </div>
+              <div className="flex items-center gap-3">
+                <MemberAvatar
+                  name={activeMember.fullName}
+                  photoDataUrl={activeMember.photoDataUrl}
+                  wing={activeMember.wing}
+                  size="md"
+                />
                 <div>
                   <div className="text-sm font-bold text-slate-900">
                     {activeMember.fullName}

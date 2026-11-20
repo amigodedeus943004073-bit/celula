@@ -300,6 +300,10 @@
           "type": "string",
           "maxLength": 5
         },
+        "photoDataUrl": {
+          "type": "string",
+          "maxLength": 150000
+        },
         "memberEmail": {
           "type": "string",
           "maxLength": 200
@@ -524,6 +528,49 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["cellId", "ownerUid", "accessCode", "allowedEmails", "senderUid", "senderMemberId", "senderName", "senderRole", "senderWing", "text", "createdAt", "updatedAt"]
+    },
+    "CellChallenge": {
+      "title": "CellChallenge",
+      "description": "Desafios publicados pela liderança no mural da célula com intervalo de tempo para resposta dos membros.",
+      "type": "object",
+      "properties": {
+        "cellId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "accessCode": { "type": "string", "maxLength": 20 },
+        "allowedEmails": { "type": "array" },
+        "title": { "type": "string", "maxLength": 140 },
+        "description": { "type": "string", "maxLength": 800 },
+        "category": { "type": "string", "enum": ["Leitura Bíblica", "Oração & Jejum", "Visita & Cuidado", "Evangelismo", "Serviço"] },
+        "startDate": { "type": "string", "maxLength": 10 },
+        "endDate": { "type": "string", "maxLength": 10 },
+        "status": { "type": "string", "enum": ["Ativo", "Encerrado"] },
+        "authorName": { "type": "string", "maxLength": 120 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cellId", "ownerUid", "allowedEmails", "title", "description", "category", "startDate", "endDate", "status", "authorName", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ChallengeResponse": {
+      "title": "ChallengeResponse",
+      "description": "Respostas e testemunhos dos membros aos desafios do mural da célula.",
+      "type": "object",
+      "properties": {
+        "cellId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "accessCode": { "type": "string", "maxLength": 20 },
+        "allowedEmails": { "type": "array" },
+        "challengeId": { "type": "string", "maxLength": 128 },
+        "memberUid": { "type": "string", "maxLength": 128 },
+        "memberId": { "type": "string", "maxLength": 128 },
+        "memberName": { "type": "string", "maxLength": 120 },
+        "memberRole": { "type": "string", "enum": ["lider", "lider_treinamento", "secretario", "anfitriao", "filhinho", "visitante", "membro"] },
+        "status": { "type": "string", "enum": ["Em Andamento", "Concluído"] },
+        "note": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["cellId", "ownerUid", "accessCode", "allowedEmails", "challengeId", "memberUid", "memberId", "memberName", "memberRole", "status", "note", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -574,6 +621,14 @@
     "/cellMessages/{messageId}": {
       "schema": { "$ref": "#/entities/CellMessage" },
       "description": "Mensagens do bate-papo entre membros registrados."
+    },
+    "/cellChallenges/{challengeId}": {
+      "schema": { "$ref": "#/entities/CellChallenge" },
+      "description": "Desafios publicados no mural da célula."
+    },
+    "/challengeResponses/{responseId}": {
+      "schema": { "$ref": "#/entities/ChallengeResponse" },
+      "description": "Respostas dos membros aos desafios do mural."
     }
   }
 }

@@ -46,11 +46,13 @@ import { auth, db, handleFirestoreError, OperationType } from './lib/firebase';
 import {
   getRolePermissions,
   ROLE_LABELS,
+  type CellChallenge,
   type CellMember,
   type CellMessage,
   type CellNotification,
   type CellRole,
   type CellWorkspace,
+  type ChallengeResponse,
   type MeetingReport,
   type MemberSession,
   type MonthlyPlan,
@@ -85,6 +87,8 @@ function CellManagementWorkspace() {
   const [allMaterials, setAllMaterials] = useState<StudyMaterial[]>([]);
   const [allNotifications, setAllNotifications] = useState<CellNotification[]>([]);
   const [allMessages, setAllMessages] = useState<CellMessage[]>([]);
+  const [allChallenges, setAllChallenges] = useState<CellChallenge[]>([]);
+  const [allChallengeResponses, setAllChallengeResponses] = useState<ChallengeResponse[]>([]);
   const [lastSeenChatMs, setLastSeenChatMs] = useState<number>(() => Date.now());
 
   const [activeSection, setActiveSection] = useState<NavSection>('overview');
@@ -139,6 +143,8 @@ function CellManagementWorkspace() {
         setAllMaterials([]);
         setAllNotifications([]);
         setAllMessages([]);
+        setAllChallenges([]);
+        setAllChallengeResponses([]);
       }
     });
     return () => unsub();
@@ -286,6 +292,34 @@ function CellManagementWorkspace() {
         handleFirestoreError(error, OperationType.LIST, 'cellMessages'),
     );
 
+    const unsubChallenges = onSnapshot(
+      query(collection(db, 'cellChallenges'), where('accessCode', '==', code)),
+      (snap) => {
+        setAllChallenges(
+          snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<CellChallenge, 'id'>),
+          })),
+        );
+      },
+      (error) =>
+        handleFirestoreError(error, OperationType.LIST, 'cellChallenges'),
+    );
+
+    const unsubChallengeResponses = onSnapshot(
+      query(collection(db, 'challengeResponses'), where('accessCode', '==', code)),
+      (snap) => {
+        setAllChallengeResponses(
+          snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<ChallengeResponse, 'id'>),
+          })),
+        );
+      },
+      (error) =>
+        handleFirestoreError(error, OperationType.LIST, 'challengeResponses'),
+    );
+
     return () => {
       cancelled = true;
       unsubMembers();
@@ -294,6 +328,8 @@ function CellManagementWorkspace() {
       unsubMaterials();
       unsubNotifs();
       unsubMessages();
+      unsubChallenges();
+      unsubChallengeResponses();
     };
   }, [authReady, user, memberSession]);
 
@@ -423,6 +459,40 @@ function CellManagementWorkspace() {
         handleFirestoreError(error, OperationType.LIST, 'cellMessages'),
     );
 
+    const unsubChallenges = onSnapshot(
+      query(
+        collection(db, 'cellChallenges'),
+        where('allowedEmails', 'array-contains', userEmail),
+      ),
+      (snap) => {
+        setAllChallenges(
+          snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<CellChallenge, 'id'>),
+          })),
+        );
+      },
+      (error) =>
+        handleFirestoreError(error, OperationType.LIST, 'cellChallenges'),
+    );
+
+    const unsubChallengeResponses = onSnapshot(
+      query(
+        collection(db, 'challengeResponses'),
+        where('allowedEmails', 'array-contains', userEmail),
+      ),
+      (snap) => {
+        setAllChallengeResponses(
+          snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<ChallengeResponse, 'id'>),
+          })),
+        );
+      },
+      (error) =>
+        handleFirestoreError(error, OperationType.LIST, 'challengeResponses'),
+    );
+
     return () => {
       unsubCells();
       unsubMembers();
@@ -431,6 +501,8 @@ function CellManagementWorkspace() {
       unsubMaterials();
       unsubNotifs();
       unsubMessages();
+      unsubChallenges();
+      unsubChallengeResponses();
     };
   }, [authReady, user]);
 
@@ -462,6 +534,14 @@ function CellManagementWorkspace() {
   const messages = useMemo(
     () => allMessages.filter((m) => m.cellId === activeCell?.id),
     [allMessages, activeCell?.id],
+  );
+  const challenges = useMemo(
+    () => allChallenges.filter((c) => c.cellId === activeCell?.id),
+    [allChallenges, activeCell?.id],
+  );
+  const challengeResponses = useMemo(
+    () => allChallengeResponses.filter((r) => r.cellId === activeCell?.id),
+    [allChallengeResponses, activeCell?.id],
   );
 
   const isRemoteNameSession = Boolean(user?.isAnonymous);
@@ -521,11 +601,15 @@ function CellManagementWorkspace() {
       reports.some((r) => !r.accessCode) ||
       materials.some((m) => !m.accessCode) ||
       notifications.some((n) => !n.accessCode) ||
+      challenges.some((c) => !c.accessCode) ||
+      challengeResponses.some((r) => !r.accessCode) ||
       hasSyncGap(members) ||
       hasSyncGap(plans) ||
       hasSyncGap(reports) ||
       hasSyncGap(materials) ||
       hasSyncGap(notifications) ||
+      hasSyncGap(challenges) ||
+      hasSyncGap(challengeResponses) ||
       !backfilledCellIdsRef.current.has(activeCell.id);
     if (!needsBackfill) return;
     backfilledCellIdsRef.current.add(activeCell.id);
@@ -540,6 +624,8 @@ function CellManagementWorkspace() {
     reports,
     materials,
     notifications,
+    challenges,
+    challengeResponses,
     membersLoaded,
     actualRole,
   ]);
@@ -751,7 +837,7 @@ function CellManagementWorkspace() {
 
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top Workspace Header */}
-        <header className="bg-white/95 backdrop-blur-sm border-b border-slate-200 px-3.5 sm:px-8 h-13 sm:h-14 flex items-center justify-between gap-3 sticky top-0 z-30">
+        <header className="print:hidden bg-white/95 backdrop-blur-sm border-b border-slate-200 px-3.5 sm:px-8 h-13 sm:h-14 flex items-center justify-between gap-3 sticky top-0 z-30">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
@@ -807,7 +893,7 @@ function CellManagementWorkspace() {
           </div>
         </header>
 
-        <main className="flex-1 p-3.5 sm:p-6 lg:p-8 pb-24 lg:pb-10 max-w-[1320px] w-full mx-auto">
+        <main className="flex-1 p-3.5 sm:p-6 lg:p-8 pb-24 lg:pb-10 max-w-[1320px] w-full mx-auto print:p-0 print:max-w-none print:pb-0">
           {!activeCell ? (
             <div className="py-16 text-center text-sm text-slate-500">
               Sincronizando dados da célula...
@@ -815,13 +901,13 @@ function CellManagementWorkspace() {
           ) : (
             <>
               {isReadOnlyMember && currentMember && activeSection === 'overview' && (
-                <div className="mb-6 bg-teal-50 border border-teal-200 rounded-xl px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="print:hidden mb-6 bg-teal-50 border border-teal-200 rounded-xl px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="text-xs text-teal-900">
                     <span className="font-semibold">
                       Olá, {currentMember.fullName}!
                     </span>{' '}
-                    Acesso <strong>somente visualização</strong> ({ROLE_LABELS[currentMember.role]} · Ala{' '}
-                    {currentMember.wing || 'Masculina'}). Acompanhe a visão geral, lembretes, planificação e relatórios de progresso.
+                    Acesso <strong>de membro</strong> ({ROLE_LABELS[currentMember.role]} · Ala{' '}
+                    {currentMember.wing || 'Masculina'}). Edite sua ficha, responda aos desafios, participe do bate-papo e acompanhe a planificação.
                   </div>
                   <button
                     type="button"
@@ -838,12 +924,17 @@ function CellManagementWorkspace() {
                 <OverviewDashboard
                   cell={activeCell}
                   currentUid={user.uid}
+                  currentMember={currentMember}
+                  userName={displayUserName}
+                  effectiveRole={effectiveRole}
                   permissions={permissions}
                   members={members}
                   plans={plans}
                   notifications={notifications}
                   autoAlerts={autoAlerts}
                   progressMetrics={progressMetrics}
+                  challenges={challenges}
+                  challengeResponses={challengeResponses}
                   onNavigate={handleNavigate}
                 />
               )}
@@ -944,7 +1035,7 @@ function CellManagementWorkspace() {
         {/* Mobile Bottom Thumb-Zone Navigation Bar */}
         <nav
           aria-label="Navegação rápida móvel"
-          className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 pb-safe"
+          className="print:hidden lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 pb-safe"
         >
           <div className="grid grid-cols-5 h-14">
             <button

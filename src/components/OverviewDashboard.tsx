@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
@@ -7,9 +7,11 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  MessageCircle,
   Plus,
   Trash2,
   UserRoundPen,
+  Users,
 } from 'lucide-react';
 import {
   formatDatePt,
@@ -26,37 +28,56 @@ import {
 import {
   MAX_FILHINHOS_PER_MENTOR,
   MAX_TRAINERS_PER_CELL,
+  ROLE_LABELS,
   type AutoReminder,
+  type CellChallenge,
   type CellMember,
   type CellNotification,
+  type CellRole,
   type CellWorkspace,
+  type ChallengeResponse,
   type MonthlyPlan,
   type NotificationType,
   type RolePermissions,
 } from '../types/cell';
+import { ChallengeWallSection } from './ChallengeWallSection';
+import { MemberAvatar } from './MemberAvatar';
 import type { NavSection } from './Sidebar';
 
 interface OverviewDashboardProps {
   cell: CellWorkspace;
   currentUid: string;
+  currentMember: CellMember | null;
+  userName: string;
+  effectiveRole: CellRole;
   permissions: RolePermissions;
   members: CellMember[];
   plans: MonthlyPlan[];
   notifications: CellNotification[];
   autoAlerts: AutoReminder[];
   progressMetrics: ProgressMetrics;
-  onNavigate: (section: NavSection, extra?: { tab?: 'mes' | 'semana' | 'progresso'; planId?: string }) => void;
+  challenges: CellChallenge[];
+  challengeResponses: ChallengeResponse[];
+  onNavigate: (
+    section: NavSection,
+    extra?: { tab?: 'mes' | 'semana' | 'progresso'; planId?: string },
+  ) => void;
 }
 
 export function OverviewDashboard({
   cell,
   currentUid,
+  currentMember,
+  userName,
+  effectiveRole,
   permissions,
   members,
   plans,
   notifications,
   autoAlerts,
   progressMetrics,
+  challenges,
+  challengeResponses,
   onNavigate,
 }: OverviewDashboardProps) {
   const today = getTodayIso();
@@ -70,9 +91,13 @@ export function OverviewDashboard({
   const [savingReminder, setSavingReminder] = useState(false);
   const [dismissedAutoIds, setDismissedAutoIds] = useState<string[]>([]);
 
-  const upcomingPlan = [...plans]
-    .filter((p) => p.status === 'Planejada' && p.date >= today)
-    .sort((a, b) => a.date.localeCompare(b.date))[0];
+  const upcomingPlan = useMemo(
+    () =>
+      [...plans]
+        .filter((p) => p.status === 'Planejada' && p.date >= today)
+        .sort((a, b) => a.date.localeCompare(b.date))[0],
+    [plans, today],
+  );
 
   const activeAutoAlerts = autoAlerts.filter(
     (a) => !dismissedAutoIds.includes(a.id),
@@ -82,10 +107,44 @@ export function OverviewDashboard({
   );
   const totalPendingAlerts = activeAutoAlerts.length + unreadNotifs.length;
 
-  const trainersCount = members.filter(
-    (m) => m.role === 'lider_treinamento',
-  ).length;
-  const filhinhosCount = members.filter((m) => m.role === 'filhinho').length;
+  const leaderMember = useMemo(
+    () => members.find((m) => m.role === 'lider') || null,
+    [members],
+  );
+  const trainers = useMemo(
+    () =>
+      members
+        .filter((m) => m.role === 'lider_treinamento')
+        .sort((a, b) => a.fullName.localeCompare(b.fullName)),
+    [members],
+  );
+  const filhinhosCount = useMemo(
+    () => members.filter((m) => m.role === 'filhinho').length,
+    [members],
+  );
+  const baptizedCount = useMemo(
+    () => members.filter((m) => m.baptismStatus === 'Batizado').length,
+    [members],
+  );
+
+  const memberByName = useMemo(() => {
+    const map = new Map<string, CellMember>();
+    for (const m of members) {
+      map.set(m.fullName.trim().toLowerCase(), m);
+    }
+    return map;
+  }, [members]);
+
+  const activeChallengesCount = useMemo(
+    () => challenges.filter((c) => c.status === 'Ativo').length,
+    [challenges],
+  );
+  const activeChallengeCompletedResponses = useMemo(() => {
+    const activeIds = new Set(
+      challenges.filter((c) => c.status === 'Ativo').map((c) => c.id),
+    );
+    return challengeResponses.filter((r) => activeIds.has(r.challengeId)).length;
+  }, [challenges, challengeResponses]);
 
   const handleCreateReminder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,59 +169,119 @@ export function OverviewDashboard({
     }
   };
 
-  return (
-    <div className="space-y-6 sm:space-y-8">
-      {/* Header summary */}
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-teal-700 mb-1 truncate">
-            {cell.meetingDay} · {cell.meetingTime}
-            {cell.location ? ` · ${cell.location}` : ''}
-          </p>
-          <h1 className="text-xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-            Painel de Produtividade e Lembretes
-          </h1>
-        </div>
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-2.5 shrink-0">
-          {permissions.canViewOwnFicha && (
-            <button
-              type="button"
-              onClick={() => onNavigate('ficha')}
-              className="min-h-[42px] inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <UserRoundPen className="w-4 h-4 shrink-0" />
-              Minha Ficha
-            </button>
-          )}
-          {permissions.canCreateManualReminders && (
-            <button
-              type="button"
-              onClick={() => setShowNewReminder((v) => !v)}
-              className="min-h-[42px] inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Plus className="w-4 h-4 shrink-0" />
-              Novo Lembrete
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => onNavigate('planning', { tab: 'semana' })}
-            className="col-span-2 sm:col-span-1 min-h-[42px] inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
-          >
-            Ver Planificação e Progresso
-            <ArrowRight className="w-4 h-4 shrink-0" />
-          </button>
-        </div>
+  const renderPersonWithAvatar = (nameValue: string | undefined, fallback: string, isPendingHighlight = false) => {
+    const cleanName = (nameValue || '').trim();
+    const matched = cleanName ? memberByName.get(cleanName.toLowerCase()) : undefined;
+    if (!cleanName) {
+      return (
+        <span className={isPendingHighlight ? 'text-amber-700' : 'text-slate-500'}>
+          {fallback}
+        </span>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2 min-w-0 mt-0.5">
+        <MemberAvatar
+          name={cleanName}
+          photoDataUrl={matched?.photoDataUrl}
+          size="xs"
+        />
+        <span className="font-semibold text-slate-900 truncate">
+          {cleanName}
+        </span>
       </div>
+    );
+  };
 
-      {/* 2x2 mobile / 4-column desktop KPI strip */}
+  const displayName = currentMember?.fullName || userName;
+  const firstName = displayName.split(/\s+/)[0] || displayName;
+
+  return (
+    <div className="space-y-6 sm:space-y-7">
+      {/* Welcome & Cell Identity Banner */}
+      <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
+            <MemberAvatar
+              name={displayName}
+              photoDataUrl={currentMember?.photoDataUrl}
+              size="lg"
+            />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 mb-0.5">
+                <span className="font-semibold text-teal-700">{cell.name}</span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {cell.meetingDay} às {cell.meetingTime}
+                </span>
+                {cell.location && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="truncate max-w-[220px]">{cell.location}</span>
+                  </>
+                )}
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight truncate">
+                Olá, {firstName}
+              </h1>
+              <p className="text-xs text-slate-600 mt-0.5">
+                {ROLE_LABELS[effectiveRole] || 'Membro'}
+                {currentMember ? ` · Ala ${currentMember.wing || 'Masculina'}` : ''}
+                {' · '}
+                <span className="tabular-nums">{members.length} integrante(s)</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0">
+            {permissions.canViewOwnFicha && (
+              <button
+                type="button"
+                onClick={() => onNavigate('ficha')}
+                className="min-h-[40px] inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 hover:bg-teal-100 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <UserRoundPen className="w-4 h-4 shrink-0" />
+                Minha Ficha
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onNavigate('chat')}
+              className="min-h-[40px] inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <MessageCircle className="w-4 h-4 text-teal-700 shrink-0" />
+              Bate-Papo
+            </button>
+            {permissions.canCreateManualReminders && (
+              <button
+                type="button"
+                onClick={() => setShowNewReminder((v) => !v)}
+                className="min-h-[40px] inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <Plus className="w-4 h-4 shrink-0" />
+                Novo Lembrete
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onNavigate('planning', { tab: 'mes' })}
+              className="col-span-2 sm:col-span-1 min-h-[40px] inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+            >
+              Planificação e Progresso
+              <ArrowRight className="w-4 h-4 shrink-0" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* 2x2 Mobile / 4-Column Desktop KPI Strip */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
           <div>
             <div className="text-[11px] sm:text-xs font-medium text-slate-500">
               Frequência Média ({formatMonthLabelPt(currentMonthKey).split(' ')[0]})
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1.5 sm:mt-2">
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1.5">
               {progressMetrics.avgAttendanceRate}%
             </div>
           </div>
@@ -184,7 +303,7 @@ export function OverviewDashboard({
             <div className="text-[11px] sm:text-xs font-medium text-slate-500">
               Reuniões no Mês
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1.5 sm:mt-2">
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1.5">
               {progressMetrics.completedCount} / {progressMetrics.plannedCount}
             </div>
           </div>
@@ -204,14 +323,14 @@ export function OverviewDashboard({
         <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
           <div>
             <div className="text-[11px] sm:text-xs font-medium text-slate-500">
-              Membros e Liderança
+              Desafios Ativos
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1.5 sm:mt-2">
-              {members.length}
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1.5">
+              {activeChallengesCount}
             </div>
           </div>
           <div className="text-[11px] sm:text-xs text-slate-500 mt-2 tabular-nums">
-            {trainersCount}/{MAX_TRAINERS_PER_CELL} treinando · {filhinhosCount} filhinhos
+            {activeChallengeCompletedResponses} resposta(s) enviada(s)
           </div>
         </div>
 
@@ -221,7 +340,7 @@ export function OverviewDashboard({
               Lembretes Pendentes
             </div>
             <div
-              className={`text-2xl sm:text-3xl font-bold tabular-nums mt-1.5 sm:mt-2 ${
+              className={`text-2xl sm:text-3xl font-bold tabular-nums mt-1.5 ${
                 totalPendingAlerts > 0 ? 'text-amber-600' : 'text-emerald-700'
               }`}
             >
@@ -239,7 +358,7 @@ export function OverviewDashboard({
       {showNewReminder && permissions.canCreateManualReminders && (
         <form
           onSubmit={handleCreateReminder}
-          className="bg-white border border-slate-200 rounded-xl p-6 space-y-4"
+          className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6 space-y-4"
         >
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-slate-900">
@@ -323,7 +442,20 @@ export function OverviewDashboard({
         </form>
       )}
 
-      {/* Main 2-column grid */}
+      {/* Mural de Desafios da Célula */}
+      <ChallengeWallSection
+        cell={cell}
+        currentUid={currentUid}
+        currentMember={currentMember}
+        userName={userName}
+        effectiveRole={effectiveRole}
+        permissions={permissions}
+        members={members}
+        challenges={challenges}
+        challengeResponses={challengeResponses}
+      />
+
+      {/* Main 2-column grid: Notifications + Next Meeting & Hierarchy */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 items-start">
         {/* Automatic Notifications & Pending Reminders */}
         <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -372,7 +504,9 @@ export function OverviewDashboard({
                             : 'font-semibold text-amber-700'
                         }
                       >
-                        {alert.severity === 'alta' ? 'Atenção' : 'Lembrete Automático'}
+                        {alert.severity === 'alta'
+                          ? 'Atenção'
+                          : 'Lembrete Automático'}
                       </span>
                       <span aria-hidden="true">·</span>
                       <span className="tabular-nums">
@@ -475,12 +609,12 @@ export function OverviewDashboard({
           </div>
         </div>
 
-        {/* Right column: Next meeting + Leadership hierarchy */}
+        {/* Right column: Next meeting + Cell Hierarchy */}
         <div className="lg:col-span-5 space-y-5 sm:space-y-6">
           <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
             <div className="flex items-center justify-between gap-2 mb-4">
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-teal-700" />
+                <Calendar className="w-4 h-4 text-teal-700 shrink-0" />
                 <h2 className="text-base font-semibold text-slate-900">
                   Próxima Reunião Planejada
                 </h2>
@@ -512,45 +646,27 @@ export function OverviewDashboard({
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-3 py-4 border-y border-slate-100 text-xs">
                   <div>
                     <dt className="text-slate-500">Dirigente</dt>
-                    <dd className="font-semibold text-slate-900 mt-0.5">
-                      {upcomingPlan.responsibleName || 'A definir'}
-                    </dd>
+                    <dd>{renderPersonWithAvatar(upcomingPlan.responsibleName, 'A definir')}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Louvor</dt>
-                    <dd className="font-semibold text-slate-900 mt-0.5">
-                      {upcomingPlan.worshipName || 'A definir'}
-                    </dd>
+                    <dd>{renderPersonWithAvatar(upcomingPlan.worshipName, 'A definir')}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Quebra-gelo</dt>
-                    <dd className="font-semibold text-slate-900 mt-0.5">
-                      {upcomingPlan.icebreakerName || 'A definir'}
-                    </dd>
+                    <dd>{renderPersonWithAvatar(upcomingPlan.icebreakerName, 'A definir')}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Lanche</dt>
-                    <dd
-                      className={`font-semibold mt-0.5 ${
-                        upcomingPlan.snackName
-                          ? 'text-slate-900'
-                          : 'text-amber-700'
-                      }`}
-                    >
-                      {upcomingPlan.snackName || 'Pendente definir'}
-                    </dd>
+                    <dd>{renderPersonWithAvatar(upcomingPlan.snackName, 'Pendente definir', true)}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Ministração</dt>
-                    <dd className="font-semibold text-slate-900 mt-0.5">
-                      {upcomingPlan.preacherName || 'A definir'}
-                    </dd>
+                    <dd>{renderPersonWithAvatar(upcomingPlan.preacherName, 'A definir')}</dd>
                   </div>
                   <div>
                     <dt className="text-slate-500">Oração</dt>
-                    <dd className="font-semibold text-slate-900 mt-0.5">
-                      {upcomingPlan.prayerName || 'A definir'}
-                    </dd>
+                    <dd>{renderPersonWithAvatar(upcomingPlan.prayerName, 'A definir')}</dd>
                   </div>
                 </dl>
 
@@ -593,11 +709,15 @@ export function OverviewDashboard({
             )}
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <h2 className="text-base font-semibold text-slate-900">
-                Estrutura de Discipulado
-              </h2>
+          {/* Hierarquia da Célula */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-teal-700 shrink-0" />
+                <h2 className="text-base font-semibold text-slate-900">
+                  Hierarquia da Célula
+                </h2>
+              </div>
               <div className="flex items-center gap-3">
                 <button
                   type="button"
@@ -617,24 +737,82 @@ export function OverviewDashboard({
                 )}
               </div>
             </div>
-            <div className="space-y-3 text-xs">
-              <div className="flex items-center justify-between py-2 border-b border-slate-100">
-                <span className="text-slate-600">Líderes em Treinamento</span>
-                <span className="font-mono tabular-nums font-semibold text-slate-900">
-                  {trainersCount} / {MAX_TRAINERS_PER_CELL} vagas
+
+            <div className="space-y-2.5">
+              {/* 1. Líder da Célula */}
+              <div className="flex items-center justify-between gap-3 py-2 border-b border-slate-100">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <MemberAvatar
+                    name={leaderMember?.fullName || 'Líder da Célula'}
+                    photoDataUrl={leaderMember?.photoDataUrl}
+                    size="sm"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-900 truncate">
+                      {leaderMember?.fullName || 'Líder não atribuído'}
+                    </div>
+                    <div className="text-[11px] text-teal-700 font-medium">
+                      Líder da Célula
+                    </div>
+                  </div>
+                </div>
+                <span className="text-[11px] font-mono tabular-nums text-slate-500 shrink-0">
+                  {trainers.length}/{MAX_TRAINERS_PER_CELL} líderes
                 </span>
               </div>
-              <div className="flex items-center justify-between py-2 border-b border-slate-100">
-                <span className="text-slate-600">Limite de Filhinhos por Mentor</span>
+
+              {/* 2. Líderes em Treinamento logo após o Líder */}
+              {trainers.length === 0 ? (
+                <p className="text-xs text-slate-500 py-1">
+                  Nenhum Líder em Treinamento selecionado no organograma.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {trainers.map((t) => {
+                    const count = members.filter(
+                      (m) => m.role === 'filhinho' && m.mentorId === t.id,
+                    ).length;
+                    return (
+                      <div
+                        key={t.id}
+                        className="flex items-center justify-between gap-3 py-1.5"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <MemberAvatar
+                            name={t.fullName}
+                            photoDataUrl={t.photoDataUrl}
+                            size="sm"
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-900 truncate">
+                              {t.fullName}
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              Líder em Treinamento · Ala {t.wing || 'Masculina'}
+                            </div>
+                          </div>
+                        </div>
+                        <span className="text-[11px] font-mono tabular-nums text-slate-600 shrink-0">
+                          {count}/{MAX_FILHINHOS_PER_MENTOR} filhinhos
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Total de Filhinhos</span>
                 <span className="font-mono tabular-nums font-semibold text-slate-900">
-                  máx. {MAX_FILHINHOS_PER_MENTOR} por líder
+                  {filhinhosCount}
                 </span>
               </div>
-              <div className="flex items-center justify-between py-2">
+              <div className="flex items-center justify-between">
                 <span className="text-slate-600">Total de Batizados</span>
                 <span className="font-mono tabular-nums font-semibold text-slate-900">
-                  {members.filter((m) => m.baptismStatus === 'Batizado').length} de{' '}
-                  {members.length}
+                  {baptizedCount} de {members.length}
                 </span>
               </div>
             </div>

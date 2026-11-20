@@ -1,32 +1,30 @@
 import React, { useMemo, useState } from 'react';
 import {
   Check,
-  Copy,
+  CheckCircle2,
   GitFork,
   Home,
   Plus,
+  Search,
   Shield,
   UserCheck,
   UserPlus,
   Users,
   X,
 } from 'lucide-react';
-import {
-  assignOrganogramPlacement,
-  saveMemberWithPrivateInfo,
-} from '../lib/cellService';
+import { assignOrganogramPlacement } from '../lib/cellService';
 import {
   MAX_FILHINHOS_PER_MENTOR,
   MAX_TRAINERS_PER_CELL,
+  ROLE_HIERARCHY_ORDER,
   ROLE_LABELS,
-  type ActivityLevel,
-  type BaptismStatus,
   type CellMember,
   type CellRole,
   type CellWing,
   type CellWorkspace,
   type RolePermissions,
 } from '../types/cell';
+import { MemberAvatar } from './MemberAvatar';
 
 interface OrganogramViewProps {
   cell: CellWorkspace;
@@ -35,50 +33,62 @@ interface OrganogramViewProps {
   members: CellMember[];
 }
 
+type PickerTarget = {
+  role: CellRole;
+  mentorId?: string;
+  mentorName?: string;
+  title: string;
+};
+
+const QUICK_ASSIGNABLE_ROLES: Array<{ role: CellRole; label: string }> = [
+  { role: 'lider_treinamento', label: 'Líder em Treinamento' },
+  { role: 'filhinho', label: 'Filhinho(a)' },
+  { role: 'secretario', label: 'Secretário(a)' },
+  { role: 'anfitriao', label: 'Anfitrião(ã)' },
+];
+
 export function OrganogramView({
   cell,
-  currentUid,
   permissions,
   members,
 }: OrganogramViewProps) {
   const [wingFilter, setWingFilter] = useState<'Todas' | CellWing>('Todas');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
-  // Add person modal from Organogram
-  const [addOpen, setAddOpen] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newRole, setNewRole] = useState<CellRole>('filhinho');
-  const [newWing, setNewWing] = useState<CellWing>('Masculina');
-  const [newMentorId, setNewMentorId] = useState('');
-  const [newPhone, setNewPhone] = useState('');
-  const [newBirthDate, setNewBirthDate] = useState('');
-  const [newBaptismStatus, setNewBaptismStatus] =
-    useState<BaptismStatus>('Não Batizado');
-  const [newActivityLevel, setNewActivityLevel] =
-    useState<ActivityLevel>('Ativo');
-  const [newIsChurchMember, setNewIsChurchMember] = useState(true);
-  const [newNotes, setNewNotes] = useState('');
-  const [savingNew, setSavingNew] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
-  const [createdBanner, setCreatedBanner] = useState<{
-    fullName: string;
-    memberCode: string;
-  } | null>(null);
-  const [copiedCode, setCopiedCode] = useState(false);
+  // Instant registered-member selection modal ("Preencher")
+  const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerMentorId, setPickerMentorId] = useState('');
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
 
-  const visibleMembers = useMemo(() => {
-    if (wingFilter === 'Todas') return members;
-    return members.filter((m) => (m.wing || 'Masculina') === wingFilter);
-  }, [members, wingFilter]);
-
-  const leaders = useMemo(
-    () => members.filter((m) => m.role === 'lider'),
+  const sortedAllMembers = useMemo(
+    () =>
+      [...members].sort((a, b) => {
+        if (ROLE_HIERARCHY_ORDER[a.role] !== ROLE_HIERARCHY_ORDER[b.role]) {
+          return ROLE_HIERARCHY_ORDER[a.role] - ROLE_HIERARCHY_ORDER[b.role];
+        }
+        return a.fullName.localeCompare(b.fullName);
+      }),
     [members],
   );
+
+  const visibleMembers = useMemo(() => {
+    if (wingFilter === 'Todas') return sortedAllMembers;
+    return sortedAllMembers.filter(
+      (m) => (m.wing || 'Masculina') === wingFilter,
+    );
+  }, [sortedAllMembers, wingFilter]);
+
+  const leaders = useMemo(
+    () => sortedAllMembers.filter((m) => m.role === 'lider'),
+    [sortedAllMembers],
+  );
   const trainers = useMemo(
-    () => members.filter((m) => m.role === 'lider_treinamento'),
-    [members],
+    () => sortedAllMembers.filter((m) => m.role === 'lider_treinamento'),
+    [sortedAllMembers],
   );
   const secretaries = useMemo(
     () => visibleMembers.filter((m) => m.role === 'secretario'),
@@ -108,10 +118,10 @@ export function OrganogramView({
 
   const legacyLeaderFilhinhos = useMemo(() => {
     const leaderIds = new Set(leaders.map((l) => l.id));
-    return members.filter(
+    return sortedAllMembers.filter(
       (m) => m.role === 'filhinho' && m.mentorId && leaderIds.has(m.mentorId),
     );
-  }, [members, leaders]);
+  }, [sortedAllMembers, leaders]);
 
   const getMenteesOf = (mentorId: string) =>
     visibleMembers.filter(
@@ -119,7 +129,9 @@ export function OrganogramView({
     );
 
   const getTotalMenteesOf = (mentorId: string) =>
-    members.filter((m) => m.role === 'filhinho' && m.mentorId === mentorId);
+    sortedAllMembers.filter(
+      (m) => m.role === 'filhinho' && m.mentorId === mentorId,
+    );
 
   const totalAssignedUnderTrainers = useMemo(
     () =>
@@ -127,85 +139,82 @@ export function OrganogramView({
         (acc, tr) => acc + getTotalMenteesOf(tr.id).length,
         0,
       ),
-    [trainers, members],
+    [trainers, sortedAllMembers],
   );
 
-  const openAddPersonModal = (preset?: {
-    role?: CellRole;
-    mentorId?: string;
-    wing?: CellWing;
-  }) => {
-    setNewName('');
-    setNewRole(preset?.role || 'filhinho');
-    setNewWing(
-      preset?.wing || (wingFilter === 'Todas' ? 'Masculina' : wingFilter),
-    );
-    setNewMentorId(preset?.mentorId || '');
-    setNewPhone('');
-    setNewBirthDate('');
-    setNewBaptismStatus('Não Batizado');
-    setNewActivityLevel('Ativo');
-    setNewIsChurchMember(preset?.role !== 'visitante');
-    setNewNotes('');
-    setAddError(null);
-    setAddOpen(true);
+  const femaleWingMembers = useMemo(
+    () =>
+      sortedAllMembers.filter((m) => (m.wing || 'Masculina') === 'Feminina'),
+    [sortedAllMembers],
+  );
+
+  const openMemberSelector = (target: PickerTarget) => {
+    setPickerTarget(target);
+    setPickerSearch('');
+    setPickerError(null);
+    if (target.mentorId) {
+      setPickerMentorId(target.mentorId);
+    } else if (target.role === 'filhinho') {
+      const available = trainers.find(
+        (tr) => getTotalMenteesOf(tr.id).length < MAX_FILHINHOS_PER_MENTOR,
+      );
+      setPickerMentorId(available?.id || trainers[0]?.id || '');
+    } else {
+      setPickerMentorId('');
+    }
   };
 
-  const handleSaveNewPerson = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newName.trim().length < 2) {
-      setAddError('Informe o nome completo da pessoa.');
-      return;
-    }
-    setSavingNew(true);
-    setAddError(null);
+  // All registered members (excluding main cell leader), ready for immediate 1-tap selection
+  const selectableRegisteredMembers = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    return sortedAllMembers.filter((m) => {
+      if (m.role === 'lider') return false;
+      if (!q) return true;
+      return (
+        m.fullName.toLowerCase().includes(q) ||
+        ROLE_LABELS[m.role].toLowerCase().includes(q) ||
+        (m.wing || 'Masculina').toLowerCase().includes(q)
+      );
+    });
+  }, [sortedAllMembers, pickerSearch]);
+
+  const handleSelectMemberForTarget = async (member: CellMember) => {
+    if (!pickerTarget) return;
+    setAssigningId(member.id);
+    setPickerError(null);
+    setErrorMsg(null);
+    setSuccessBanner(null);
     try {
-      const res = await saveMemberWithPrivateInfo({
+      const effectiveMentorId =
+        pickerTarget.role === 'filhinho'
+          ? pickerTarget.mentorId || pickerMentorId
+          : '';
+      await assignOrganogramPlacement({
         cell,
-        existingMember: null,
+        member,
         allMembers: members,
-        currentUid,
-        canManageRoles: permissions.canManageOrganogram,
-        data: {
-          fullName: newName.trim(),
-          role: newRole,
-          wing: newWing,
-          mentorId: newRole === 'filhinho' ? newMentorId : '',
-          activityLevel: newActivityLevel,
-          isChurchMember: newIsChurchMember,
-          baptismStatus: newBaptismStatus,
-          memberEmail: '',
-          phone: newPhone.trim(),
-          address: '',
-          birthDate: newBirthDate,
-          baptismDate: '',
-          notes: newNotes.trim(),
-        },
+        nextRole: pickerTarget.role,
+        nextWing: member.wing || 'Masculina',
+        nextMentorId: effectiveMentorId,
       });
-      setCreatedBanner({
-        fullName: newName.trim(),
-        memberCode: res.memberCode,
-      });
-      setCopiedCode(false);
-      setAddOpen(false);
+      const roleTitle = ROLE_LABELS[pickerTarget.role];
+      const mentorObj = effectiveMentorId
+        ? members.find((x) => x.id === effectiveMentorId)
+        : null;
+      setSuccessBanner(
+        mentorObj
+          ? `${member.fullName} selecionado(a) como ${roleTitle} na equipe de ${mentorObj.fullName}.`
+          : `${member.fullName} selecionado(a) como ${roleTitle}.`,
+      );
+      setPickerTarget(null);
     } catch (err) {
-      setAddError(
+      setPickerError(
         err instanceof Error
           ? err.message
-          : 'Não foi possível adicionar a pessoa no organograma.',
+          : 'Não foi possível selecionar este irmão para a vaga.',
       );
     } finally {
-      setSavingNew(false);
-    }
-  };
-
-  const handleCopyCode = async (code: string) => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
-    } catch {
-      // Clipboard may be unavailable in restricted contexts
+      setAssigningId(null);
     }
   };
 
@@ -237,22 +246,6 @@ export function OrganogramView({
     }
   };
 
-  const femaleWingMembers = useMemo(
-    () => members.filter((m) => (m.wing || 'Masculina') === 'Feminina'),
-    [members],
-  );
-
-  const assignablePool = useMemo(
-    () =>
-      members.filter(
-        (m) =>
-          m.role === 'filhinho' ||
-          m.role === 'visitante' ||
-          m.role === 'membro',
-      ),
-    [members],
-  );
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -261,7 +254,7 @@ export function OrganogramView({
             Organograma da Célula
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Hierarquia organizada: Líder da Célula → {MAX_TRAINERS_PER_CELL} Líderes em Treinamento → até {MAX_FILHINHOS_PER_MENTOR} Filhinhos por líder em treinamento, além de Secretário, Anfitrião, Visitantes e Ala Feminina.
+            Hierarquia: Líder da Célula → {MAX_TRAINERS_PER_CELL} Líderes em Treinamento → até {MAX_FILHINHOS_PER_MENTOR} Filhinhos cada. Clique em <strong>Preencher</strong> em qualquer vaga para selecionar os irmãos já registrados.
           </p>
         </div>
 
@@ -286,51 +279,38 @@ export function OrganogramView({
           {permissions.canManageOrganogram && (
             <button
               type="button"
-              onClick={() => openAddPersonModal()}
+              onClick={() =>
+                openMemberSelector({
+                  role:
+                    trainers.length < MAX_TRAINERS_PER_CELL
+                      ? 'lider_treinamento'
+                      : 'filhinho',
+                  title: 'Preencher Organograma · Selecionar Irmão',
+                })
+              }
               className="min-h-[42px] inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
             >
-              <Plus className="w-4 h-4 shrink-0" />
-              Adicionar Pessoa
+              <UserPlus className="w-4 h-4 shrink-0" />
+              Preencher Vagas
             </button>
           )}
         </div>
       </div>
 
-      {createdBanner && (
-        <div className="p-4 rounded-xl bg-teal-50 border border-teal-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="text-xs text-teal-900">
-            <strong>{createdBanner.fullName}</strong> adicionado(a) ao organograma! Código de acesso individual gerado:{' '}
-            <span className="font-mono font-bold text-teal-950 bg-white border border-teal-300 px-2 py-0.5 rounded ml-1">
-              {createdBanner.memberCode}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => handleCopyCode(createdBanner.memberCode)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-800 bg-white border border-teal-300 hover:bg-teal-100 rounded-lg cursor-pointer"
-            >
-              {copiedCode ? (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  Copiado
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  Copiar Código
-                </>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setCreatedBanner(null)}
-              aria-label="Fechar aviso"
-              className="p-1.5 text-teal-700 hover:text-teal-950 rounded cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+      {successBanner && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-3 text-xs text-emerald-900">
+          <span className="inline-flex items-center gap-2 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            {successBanner}
+          </span>
+          <button
+            type="button"
+            onClick={() => setSuccessBanner(null)}
+            aria-label="Fechar aviso"
+            className="p-1 text-emerald-700 hover:text-emerald-950 rounded cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -343,17 +323,20 @@ export function OrganogramView({
         </div>
       )}
 
-      {/* Nível 1: Líder da Célula (supervisiona até 3 Líderes em Treinamento) + Equipe de Apoio */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6">
-        <div className="flex items-center justify-between gap-2 pb-4 border-b border-slate-100">
+      {/* Nível 1: Líder da Célula + Equipe de Apoio (Secretário e Anfitrião) */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-teal-700" />
             <h2 className="text-base font-semibold text-slate-900">
-              Nível 1 · Liderança Principal e Equipe de Apoio
+              Nível 1 · Líder da Célula e Equipe de Apoio
             </h2>
           </div>
           <span className="text-xs text-slate-500">
-            Código da célula: <strong className="font-mono text-slate-900">{cell.accessCode}</strong>
+            Código da célula:{' '}
+            <strong className="font-mono text-slate-900">
+              {cell.accessCode}
+            </strong>
           </span>
         </div>
 
@@ -365,16 +348,24 @@ export function OrganogramView({
             >
               <div>
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-medium text-teal-700">
-                      {ROLE_LABELS.lider} · Ala {leader.wing || 'Masculina'}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <MemberAvatar
+                      name={leader.fullName}
+                      photoDataUrl={leader.photoDataUrl}
+                      wing={leader.wing}
+                      size="lg"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-teal-700">
+                        {ROLE_LABELS.lider} · Ala {leader.wing || 'Masculina'}
+                      </div>
+                      <h3 className="text-lg font-bold text-slate-900 mt-0.5 truncate">
+                        {leader.fullName}
+                      </h3>
                     </div>
-                    <h3 className="text-lg font-bold text-slate-900 mt-0.5">
-                      {leader.fullName}
-                    </h3>
                   </div>
-                  <div className="text-xs font-mono tabular-nums font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-md">
-                    {trainers.length} / {MAX_TRAINERS_PER_CELL} líderes em treinamento
+                  <div className="text-xs font-mono tabular-nums font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-md shrink-0">
+                    {trainers.length}/{MAX_TRAINERS_PER_CELL} treinando
                   </div>
                 </div>
 
@@ -388,7 +379,8 @@ export function OrganogramView({
                   <div className="bg-white border border-slate-200 rounded-lg px-3 py-2.5">
                     <div className="text-slate-500">Filhinhos nos 3 grupos</div>
                     <div className="text-base font-bold text-slate-900 tabular-nums mt-0.5">
-                      {totalAssignedUnderTrainers} / {MAX_TRAINERS_PER_CELL * MAX_FILHINHOS_PER_MENTOR}
+                      {totalAssignedUnderTrainers} /{' '}
+                      {MAX_TRAINERS_PER_CELL * MAX_FILHINHOS_PER_MENTOR}
                     </div>
                   </div>
                 </div>
@@ -396,7 +388,8 @@ export function OrganogramView({
                 {legacyLeaderFilhinhos.length > 0 && (
                   <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-2">
                     <p className="text-xs font-medium text-amber-900">
-                      Reatribua estes filhinhos para um dos {MAX_TRAINERS_PER_CELL} Líderes em Treinamento:
+                      Reatribua estes filhinhos para um dos{' '}
+                      {MAX_TRAINERS_PER_CELL} Líderes em Treinamento:
                     </p>
                     <ul className="space-y-1.5">
                       {legacyLeaderFilhinhos.map((f) => (
@@ -412,7 +405,12 @@ export function OrganogramView({
                               type="button"
                               disabled={busyId === f.id}
                               onClick={() =>
-                                handleAssign(f, 'filhinho', f.wing || 'Masculina', '')
+                                handleAssign(
+                                  f,
+                                  'filhinho',
+                                  f.wing || 'Masculina',
+                                  '',
+                                )
                               }
                               className="text-xs text-amber-800 hover:text-red-700 font-medium cursor-pointer"
                             >
@@ -432,12 +430,16 @@ export function OrganogramView({
                     <button
                       type="button"
                       onClick={() =>
-                        openAddPersonModal({ role: 'lider_treinamento' })
+                        openMemberSelector({
+                          role: 'lider_treinamento',
+                          title: 'Selecionar Líder em Treinamento',
+                        })
                       }
-                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer"
+                      className="w-full min-h-[40px] inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      Preencher Vaga de Líder em Treinamento ({trainers.length}/{MAX_TRAINERS_PER_CELL})
+                      Preencher Líder em Treinamento ({trainers.length}/
+                      {MAX_TRAINERS_PER_CELL})
                     </button>
                   </div>
                 )}
@@ -454,38 +456,71 @@ export function OrganogramView({
                     Secretário(a) da Célula
                   </h3>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <span className="text-xs text-slate-500 tabular-nums">
                     {secretaries.length}
                   </span>
                   {permissions.canManageOrganogram && (
                     <button
                       type="button"
-                      onClick={() => openAddPersonModal({ role: 'secretario' })}
-                      className="text-xs font-semibold text-teal-700 hover:text-teal-900 cursor-pointer"
+                      onClick={() =>
+                        openMemberSelector({
+                          role: 'secretario',
+                          title: 'Selecionar Secretário(a) da Célula',
+                        })
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-md cursor-pointer"
                     >
-                      + Adicionar
+                      <Plus className="w-3 h-3" />
+                      Preencher
                     </button>
                   )}
                 </div>
               </div>
               {secretaries.length === 0 ? (
                 <p className="text-xs text-slate-500">
-                  Nenhum secretário(a) atribuído ainda.
+                  Nenhum secretário(a) atribuído ainda. Clique em Preencher para selecionar um irmão registrado.
                 </p>
               ) : (
                 <div className="space-y-2">
                   {secretaries.map((s) => (
                     <div
                       key={s.id}
-                      className="flex items-center justify-between text-xs py-1.5 border-b border-slate-100 last:border-b-0"
+                      className="flex items-center justify-between gap-2 text-xs py-1.5 border-b border-slate-100 last:border-b-0"
                     >
-                      <span className="font-semibold text-slate-900">
-                        {s.fullName}
-                      </span>
-                      <span className="text-slate-500">
-                        Ala {s.wing || 'Masculina'} · {s.activityLevel}
-                      </span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MemberAvatar
+                          name={s.fullName}
+                          photoDataUrl={s.photoDataUrl}
+                          wing={s.wing}
+                          size="xs"
+                        />
+                        <span className="font-semibold text-slate-900 truncate">
+                          {s.fullName}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-slate-500">
+                          Ala {s.wing || 'Masculina'}
+                        </span>
+                        {permissions.canManageOrganogram && (
+                          <button
+                            type="button"
+                            disabled={busyId === s.id}
+                            onClick={() =>
+                              handleAssign(
+                                s,
+                                'membro',
+                                s.wing || 'Masculina',
+                                '',
+                              )
+                            }
+                            className="text-[11px] text-slate-400 hover:text-red-600 cursor-pointer"
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -500,38 +535,71 @@ export function OrganogramView({
                     Anfitrião(ã)
                   </h3>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <span className="text-xs text-slate-500 tabular-nums">
                     {hosts.length}
                   </span>
                   {permissions.canManageOrganogram && (
                     <button
                       type="button"
-                      onClick={() => openAddPersonModal({ role: 'anfitriao' })}
-                      className="text-xs font-semibold text-teal-700 hover:text-teal-900 cursor-pointer"
+                      onClick={() =>
+                        openMemberSelector({
+                          role: 'anfitriao',
+                          title: 'Selecionar Anfitrião(ã) da Célula',
+                        })
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-md cursor-pointer"
                     >
-                      + Adicionar
+                      <Plus className="w-3 h-3" />
+                      Preencher
                     </button>
                   )}
                 </div>
               </div>
               {hosts.length === 0 ? (
                 <p className="text-xs text-slate-500">
-                  Nenhum anfitrião(ã) atribuído ainda.
+                  Nenhum anfitrião(ã) atribuído ainda. Clique em Preencher para selecionar um irmão registrado.
                 </p>
               ) : (
                 <div className="space-y-2">
                   {hosts.map((h) => (
                     <div
                       key={h.id}
-                      className="flex items-center justify-between text-xs py-1.5 border-b border-slate-100 last:border-b-0"
+                      className="flex items-center justify-between gap-2 text-xs py-1.5 border-b border-slate-100 last:border-b-0"
                     >
-                      <span className="font-semibold text-slate-900">
-                        {h.fullName}
-                      </span>
-                      <span className="text-slate-500">
-                        Ala {h.wing || 'Masculina'} · {h.activityLevel}
-                      </span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MemberAvatar
+                          name={h.fullName}
+                          photoDataUrl={h.photoDataUrl}
+                          wing={h.wing}
+                          size="xs"
+                        />
+                        <span className="font-semibold text-slate-900 truncate">
+                          {h.fullName}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-slate-500">
+                          Ala {h.wing || 'Masculina'}
+                        </span>
+                        {permissions.canManageOrganogram && (
+                          <button
+                            type="button"
+                            disabled={busyId === h.id}
+                            onClick={() =>
+                              handleAssign(
+                                h,
+                                'membro',
+                                h.wing || 'Masculina',
+                                '',
+                              )
+                            }
+                            className="text-[11px] text-slate-400 hover:text-red-600 cursor-pointer"
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -542,16 +610,18 @@ export function OrganogramView({
       </div>
 
       {/* Nível 2 e 3: Grade fixa de 3 Líderes em Treinamento -> 3 Filhinhos cada */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6">
+      <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <GitFork className="w-4 h-4 text-teal-700" />
             <h2 className="text-base font-semibold text-slate-900">
-              Nível 2 e 3 · {MAX_TRAINERS_PER_CELL} Líderes em Treinamento e seus {MAX_FILHINHOS_PER_MENTOR} Filhinhos
+              Nível 2 e 3 · {MAX_TRAINERS_PER_CELL} Líderes em Treinamento e seus{' '}
+              {MAX_FILHINHOS_PER_MENTOR} Filhinhos
             </h2>
           </div>
           <span className="text-xs text-slate-500 tabular-nums">
-            {trainers.length}/{MAX_TRAINERS_PER_CELL} líderes em treinamento · Máx. {MAX_FILHINHOS_PER_MENTOR} filhinhos cada
+            {trainers.length}/{MAX_TRAINERS_PER_CELL} líderes em treinamento · Máx.{' '}
+            {MAX_FILHINHOS_PER_MENTOR} filhinhos cada
           </span>
         </div>
 
@@ -571,18 +641,22 @@ export function OrganogramView({
                     Líder em Treinamento disponível
                   </div>
                   <p className="text-xs text-slate-500 mt-1 max-w-[220px]">
-                    Responsável por acompanhar até {MAX_FILHINHOS_PER_MENTOR} filhinhos nesta frente.
+                    Responsável por acompanhar até {MAX_FILHINHOS_PER_MENTOR}{' '}
+                    filhinhos nesta frente.
                   </p>
                   {permissions.canManageOrganogram && (
                     <button
                       type="button"
                       onClick={() =>
-                        openAddPersonModal({ role: 'lider_treinamento' })
+                        openMemberSelector({
+                          role: 'lider_treinamento',
+                          title: `Preencher Vaga ${slotIdx + 1} · Líder em Treinamento`,
+                        })
                       }
-                      className="mt-4 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer"
+                      className="mt-4 min-h-[40px] inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      Adicionar Líder em Treinamento
+                      Preencher Líder em Treinamento
                     </button>
                   )}
                 </div>
@@ -600,17 +674,45 @@ export function OrganogramView({
                 className="border border-slate-200 rounded-xl p-5 flex flex-col justify-between bg-white"
               >
                 <div>
-                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
                     <span className="font-semibold text-teal-700">
                       Vaga {slotIdx + 1} · Ala {tr.wing || 'Masculina'}
                     </span>
-                    <span className="font-mono tabular-nums font-semibold text-slate-800">
-                      {totalCount} / {MAX_FILHINHOS_PER_MENTOR} filhinhos
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono tabular-nums font-semibold text-slate-800">
+                        {totalCount}/{MAX_FILHINHOS_PER_MENTOR}
+                      </span>
+                      {permissions.canManageOrganogram && (
+                        <button
+                          type="button"
+                          disabled={busyId === tr.id}
+                          onClick={() =>
+                            handleAssign(
+                              tr,
+                              'membro',
+                              tr.wing || 'Masculina',
+                              '',
+                            )
+                          }
+                          title="Remover da vaga de Líder em Treinamento"
+                          className="text-[11px] text-slate-400 hover:text-red-600 cursor-pointer"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <h3 className="text-base font-bold text-slate-900">
-                    {tr.fullName}
-                  </h3>
+                  <div className="flex items-center gap-2.5">
+                    <MemberAvatar
+                      name={tr.fullName}
+                      photoDataUrl={tr.photoDataUrl}
+                      wing={tr.wing}
+                      size="md"
+                    />
+                    <h3 className="text-base font-bold text-slate-900 truncate">
+                      {tr.fullName}
+                    </h3>
+                  </div>
 
                   <div className="mt-4 space-y-2">
                     {Array.from(
@@ -618,7 +720,26 @@ export function OrganogramView({
                       (_, fIdx) => {
                         const f = mentees[fIdx] || null;
                         if (!f) {
-                          return (
+                          return permissions.canManageOrganogram ? (
+                            <button
+                              key={`slot-${tr.id}-${fIdx}`}
+                              type="button"
+                              onClick={() =>
+                                openMemberSelector({
+                                  role: 'filhinho',
+                                  mentorId: tr.id,
+                                  mentorName: tr.fullName,
+                                  title: `Selecionar Filhinho para ${tr.fullName}`,
+                                })
+                              }
+                              className="w-full flex items-center justify-between text-xs border border-dashed border-teal-300 bg-teal-50/40 hover:bg-teal-50 rounded-lg px-3 py-2 text-teal-800 font-medium cursor-pointer transition-colors"
+                            >
+                              <span>
+                                Filhinho {fIdx + 1}/{MAX_FILHINHOS_PER_MENTOR} · Selecionar irmão
+                              </span>
+                              <Plus className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                            </button>
+                          ) : (
                             <div
                               key={`slot-${tr.id}-${fIdx}`}
                               className="flex items-center justify-between text-xs border border-dashed border-slate-200 rounded-lg px-3 py-2 text-slate-400"
@@ -634,12 +755,20 @@ export function OrganogramView({
                             key={f.id}
                             className="flex items-center justify-between gap-2 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"
                           >
-                            <div className="min-w-0">
-                              <div className="font-semibold text-slate-900 truncate">
-                                {fIdx + 1}. {f.fullName}
-                              </div>
-                              <div className="text-[11px] text-slate-500">
-                                Ala {f.wing || 'Masculina'} · {f.activityLevel}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <MemberAvatar
+                                name={f.fullName}
+                                photoDataUrl={f.photoDataUrl}
+                                wing={f.wing}
+                                size="xs"
+                              />
+                              <div className="min-w-0">
+                                <div className="font-semibold text-slate-900 truncate">
+                                  {fIdx + 1}. {f.fullName}
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                  Ala {f.wing || 'Masculina'} · {f.activityLevel}
+                                </div>
                               </div>
                             </div>
                             {permissions.canManageOrganogram && (
@@ -665,7 +794,8 @@ export function OrganogramView({
                     )}
                     {hiddenOtherWingCount > 0 && (
                       <p className="text-[11px] text-slate-500 pt-1">
-                        +{hiddenOtherWingCount} filhinho(s) de outra ala vinculado(s) a este líder.
+                        +{hiddenOtherWingCount} filhinho(s) de outra ala
+                        vinculado(s) a este líder.
                       </p>
                     )}
                   </div>
@@ -673,50 +803,21 @@ export function OrganogramView({
 
                 {permissions.canManageOrganogram &&
                   totalCount < MAX_FILHINHOS_PER_MENTOR && (
-                    <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
-                      <select
-                        defaultValue=""
-                        disabled={busyId !== null}
-                        onChange={(e) => {
-                          const target = members.find(
-                            (x) => x.id === e.target.value,
-                          );
-                          if (target) {
-                            handleAssign(
-                              target,
-                              'filhinho',
-                              target.wing || 'Masculina',
-                              tr.id,
-                            );
-                          }
-                          e.target.value = '';
-                        }}
-                        className="w-full px-2.5 py-2 text-xs border border-slate-300 rounded-lg bg-white"
-                      >
-                        <option value="">
-                          + Vincular filhinho existente ({totalCount}/{MAX_FILHINHOS_PER_MENTOR})...
-                        </option>
-                        {assignablePool
-                          .filter((x) => x.mentorId !== tr.id)
-                          .map((x) => (
-                            <option key={x.id} value={x.id}>
-                              {x.fullName} (Ala {x.wing || 'Masculina'})
-                            </option>
-                          ))}
-                      </select>
+                    <div className="mt-4 pt-3 border-t border-slate-100">
                       <button
                         type="button"
                         onClick={() =>
-                          openAddPersonModal({
+                          openMemberSelector({
                             role: 'filhinho',
                             mentorId: tr.id,
-                            wing: tr.wing || 'Masculina',
+                            mentorName: tr.fullName,
+                            title: `Preencher Filhinho de ${tr.fullName}`,
                           })
                         }
-                        className="w-full inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer"
+                        className="w-full min-h-[38px] inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        Novo Filhinho
+                        Preencher Filhinho ({totalCount}/{MAX_FILHINHOS_PER_MENTOR})
                       </button>
                     </div>
                   )}
@@ -727,7 +828,7 @@ export function OrganogramView({
       </div>
 
       {/* Ala Feminina em Destaque */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6">
+      <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6">
         <div className="flex items-center justify-between gap-2 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-teal-700" />
@@ -755,13 +856,21 @@ export function OrganogramView({
                   key={fm.id}
                   className="border border-slate-200 rounded-lg p-3.5 text-xs flex items-center justify-between gap-3"
                 >
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-900 truncate">
-                      {fm.fullName}
-                    </div>
-                    <div className="text-slate-500 mt-0.5">
-                      {ROLE_LABELS[fm.role]}
-                      {mentor ? ` · Mentora: ${mentor.fullName}` : ''}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <MemberAvatar
+                      name={fm.fullName}
+                      photoDataUrl={fm.photoDataUrl}
+                      wing={fm.wing}
+                      size="sm"
+                    />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-slate-900 truncate">
+                        {fm.fullName}
+                      </div>
+                      <div className="text-slate-500 mt-0.5 truncate">
+                        {ROLE_LABELS[fm.role]}
+                        {mentor ? ` · Mentor: ${mentor.fullName}` : ''}
+                      </div>
                     </div>
                   </div>
                   <span className="text-[11px] font-medium text-teal-700 shrink-0">
@@ -784,7 +893,8 @@ export function OrganogramView({
             </h2>
           </div>
           <span className="text-xs text-slate-500 tabular-nums">
-            {visitors.length} visitante(s) · {unassignedFilhinhos.length} filhinho(s) sem mentor · {generalMembers.length} membro(s)
+            {visitors.length} visitante(s) · {unassignedFilhinhos.length}{' '}
+            filhinho(s) sem mentor · {generalMembers.length} membro(s)
           </span>
         </div>
 
@@ -793,10 +903,18 @@ export function OrganogramView({
           {visibleMembers.map((m) => (
             <div key={m.id} className="p-4 space-y-2.5 text-xs">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-bold text-slate-900">
-                  {m.fullName}
-                </span>
-                <span className="text-slate-500">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <MemberAvatar
+                    name={m.fullName}
+                    photoDataUrl={m.photoDataUrl}
+                    wing={m.wing}
+                    size="sm"
+                  />
+                  <span className="text-sm font-bold text-slate-900 truncate">
+                    {m.fullName}
+                  </span>
+                </div>
+                <span className="text-slate-500 shrink-0">
                   {ROLE_LABELS[m.role]}
                 </span>
               </div>
@@ -841,7 +959,8 @@ export function OrganogramView({
                           m.role !== 'lider_treinamento'
                         }
                       >
-                        Líder em Treinamento ({trainers.length}/{MAX_TRAINERS_PER_CELL})
+                        Líder em Treinamento ({trainers.length}/
+                        {MAX_TRAINERS_PER_CELL})
                       </option>
                       <option value="secretario">Secretário(a)</option>
                       <option value="anfitriao">Anfitrião(ã)</option>
@@ -865,7 +984,9 @@ export function OrganogramView({
                       }
                       className="w-full min-h-[40px] px-3 py-2 border border-slate-200 rounded-lg bg-white text-xs"
                     >
-                      <option value="">Sem líder em treinamento atribuído</option>
+                      <option value="">
+                        Sem líder em treinamento atribuído
+                      </option>
                       {trainers.map((mentor) => {
                         const cnt = getTotalMenteesOf(mentor.id).length;
                         const isFull =
@@ -906,14 +1027,24 @@ export function OrganogramView({
                 <th className="py-3 px-4">Nome</th>
                 <th className="py-3 px-4">Ala</th>
                 <th className="py-3 px-4">Cargo no Organograma</th>
-                <th className="py-3 px-4">Líder em Treinamento (para Filhinho)</th>
+                <th className="py-3 px-4">
+                  Líder em Treinamento (para Filhinho)
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {visibleMembers.map((m) => (
                 <tr key={m.id} className="hover:bg-slate-50/70">
                   <td className="py-3 px-4 font-semibold text-slate-900">
-                    {m.fullName}
+                    <div className="flex items-center gap-2.5">
+                      <MemberAvatar
+                        name={m.fullName}
+                        photoDataUrl={m.photoDataUrl}
+                        wing={m.wing}
+                        size="sm"
+                      />
+                      <span>{m.fullName}</span>
+                    </div>
                   </td>
                   <td className="py-3 px-4">
                     {permissions.canManageOrganogram ? (
@@ -961,7 +1092,8 @@ export function OrganogramView({
                             m.role !== 'lider_treinamento'
                           }
                         >
-                          Líder em Treinamento ({trainers.length}/{MAX_TRAINERS_PER_CELL})
+                          Líder em Treinamento ({trainers.length}/
+                          {MAX_TRAINERS_PER_CELL})
                         </option>
                         <option value="secretario">Secretário(a)</option>
                         <option value="anfitriao">Anfitrião(ã)</option>
@@ -991,7 +1123,9 @@ export function OrganogramView({
                           }
                           className="px-2.5 py-1.5 border border-slate-200 rounded-md bg-white text-xs"
                         >
-                          <option value="">Sem líder em treinamento atribuído</option>
+                          <option value="">
+                            Sem líder em treinamento atribuído
+                          </option>
                           {trainers.map((mentor) => {
                             const cnt = getTotalMenteesOf(mentor.id).length;
                             const isFull =
@@ -1003,7 +1137,8 @@ export function OrganogramView({
                                 value={mentor.id}
                                 disabled={isFull}
                               >
-                                {mentor.fullName} ({cnt}/{MAX_FILHINHOS_PER_MENTOR})
+                                {mentor.fullName} ({cnt}/
+                                {MAX_FILHINHOS_PER_MENTOR})
                               </option>
                             );
                           })}
@@ -1025,226 +1160,205 @@ export function OrganogramView({
         </div>
       </div>
 
-      {/* Modal: Adicionar Pessoa Direto no Organograma */}
-      {addOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl w-full max-w-xl p-5 sm:p-8 max-h-[92vh] overflow-y-auto shadow-xl">
-            <div className="flex items-start justify-between gap-4 mb-5">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">
-                  Adicionar Pessoa no Organograma
+      {/* Modal: Selecionar Irmão / Membro já Registrado (SEM campos para preencher) */}
+      {pickerTarget && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setPickerTarget(null)}
+        >
+          <div
+            className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl w-full max-w-lg max-h-[88vh] flex flex-col shadow-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                  {pickerTarget.title}
                 </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Cadastre líderes em treinamento, filhinhos (máx. {MAX_FILHINHOS_PER_MENTOR} por mentor), secretário(a), anfitrião(ã) ou visitantes diretamente na hierarquia.
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Toque em qualquer irmão já registrado na célula para selecionar imediatamente para{' '}
+                  <strong>{ROLE_LABELS[pickerTarget.role]}</strong>.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setAddOpen(false)}
-                className="p-2 text-slate-500 hover:text-slate-900 rounded-lg cursor-pointer"
+                onClick={() => setPickerTarget(null)}
+                aria-label="Fechar lista"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-slate-800 rounded-lg cursor-pointer shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {addError && (
-              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
-                {addError}
+            {/* Role switch pills when filling generally */}
+            {!pickerTarget.mentorId && (
+              <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-1.5">
+                {QUICK_ASSIGNABLE_ROLES.map((item) => {
+                  const active = pickerTarget.role === item.role;
+                  return (
+                    <button
+                      key={item.role}
+                      type="button"
+                      onClick={() => {
+                        setPickerError(null);
+                        setPickerTarget((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                role: item.role,
+                                title: `Selecionar Irmão para ${item.label}`,
+                              }
+                            : prev,
+                        );
+                        if (item.role === 'filhinho' && !pickerMentorId) {
+                          const avail = trainers.find(
+                            (tr) =>
+                              getTotalMenteesOf(tr.id).length <
+                              MAX_FILHINHOS_PER_MENTOR,
+                          );
+                          setPickerMentorId(avail?.id || trainers[0]?.id || '');
+                        }
+                      }}
+                      className={`px-2.5 py-1.5 text-xs font-semibold rounded-md border transition-colors cursor-pointer whitespace-nowrap ${
+                        active
+                          ? 'bg-teal-700 text-white border-teal-700'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
               </div>
             )}
 
-            <form onSubmit={handleSaveNewPerson} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Nome Completo *
+            {/* If picking a filhinho without pre-chosen mentor, let user pick which trainer */}
+            {pickerTarget.role === 'filhinho' && !pickerTarget.mentorId && (
+              <div className="px-5 py-2.5 border-b border-slate-200 bg-teal-50/40">
+                <label className="block text-[11px] font-semibold text-teal-900 mb-1">
+                  Líder em Treinamento responsável por este filhinho:
                 </label>
+                <select
+                  value={pickerMentorId}
+                  onChange={(e) => setPickerMentorId(e.target.value)}
+                  className="w-full min-h-[38px] px-2.5 py-1.5 text-xs bg-white border border-teal-200 rounded-lg"
+                >
+                  <option value="">Sem líder atribuído</option>
+                  {trainers.map((tr) => {
+                    const cnt = getTotalMenteesOf(tr.id).length;
+                    return (
+                      <option
+                        key={tr.id}
+                        value={tr.id}
+                        disabled={cnt >= MAX_FILHINHOS_PER_MENTOR}
+                      >
+                        {tr.fullName} ({cnt}/{MAX_FILHINHOS_PER_MENTOR})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
+
+            {/* Quick filter (optional, full list is already shown below) */}
+            <div className="px-5 py-3 border-b border-slate-100">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  required
-                  autoFocus
-                  maxLength={120}
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Ex.: Pedro Henrique"
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                  value={pickerSearch}
+                  onChange={(e) => setPickerSearch(e.target.value)}
+                  placeholder="Filtrar nome na lista (opcional)..."
+                  className="w-full pl-9 pr-3 py-2 min-h-[40px] text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-700"
                 />
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Cargo no Organograma *
-                  </label>
-                  <select
-                    value={newRole}
-                    onChange={(e) => {
-                      const nextRole = e.target.value as CellRole;
-                      setNewRole(nextRole);
-                      if (nextRole !== 'filhinho') setNewMentorId('');
-                      if (nextRole === 'visitante') setNewIsChurchMember(false);
-                    }}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    <option
-                      value="lider_treinamento"
-                      disabled={trainers.length >= MAX_TRAINERS_PER_CELL}
-                    >
-                      Líder em Treinamento ({trainers.length}/{MAX_TRAINERS_PER_CELL})
-                    </option>
-                    <option value="filhinho">Filhinho(a)</option>
-                    <option value="secretario">Secretário(a)</option>
-                    <option value="anfitriao">Anfitrião(ã)</option>
-                    <option value="visitante">Visitante</option>
-                    <option value="membro">Membro</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Ala da Célula *
-                  </label>
-                  <select
-                    value={newWing}
-                    onChange={(e) => setNewWing(e.target.value as CellWing)}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    <option value="Masculina">Ala Masculina</option>
-                    <option value="Feminina">Ala Feminina</option>
-                  </select>
-                </div>
-              </div>
-
-              {newRole === 'filhinho' && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Líder em Treinamento Responsável (máx. {MAX_FILHINHOS_PER_MENTOR} filhinhos por líder)
-                  </label>
-                  <select
-                    value={newMentorId}
-                    onChange={(e) => setNewMentorId(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    <option value="">Sem líder em treinamento atribuído ainda</option>
-                    {trainers.map((mentor) => {
-                      const cnt = getTotalMenteesOf(mentor.id).length;
-                      return (
-                        <option
-                          key={mentor.id}
-                          value={mentor.id}
-                          disabled={cnt >= MAX_FILHINHOS_PER_MENTOR}
-                        >
-                          {mentor.fullName} ({cnt}/{MAX_FILHINHOS_PER_MENTOR} filhinhos)
-                        </option>
-                      );
-                    })}
-                  </select>
+              {pickerError && (
+                <div className="mt-2.5 p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+                  {pickerError}
                 </div>
               )}
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Telefone
-                  </label>
-                  <input
-                    type="tel"
-                    maxLength={40}
-                    value={newPhone}
-                    onChange={(e) => setNewPhone(e.target.value)}
-                    placeholder="(11) 99999-0000"
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg tabular-nums"
-                  />
+            {/* Full list of all registered members immediately visible */}
+            <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+              {selectableRegisteredMembers.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500">
+                  {members.length <= 1
+                    ? 'Nenhum outro membro registrado na célula ainda. Cadastre as fichas na aba Membros & Acessos para selecioná-los aqui.'
+                    : `Nenhum irmão encontrado para "${pickerSearch}".`}
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Data de Nascimento
-                  </label>
-                  <input
-                    type="date"
-                    value={newBirthDate}
-                    onChange={(e) => setNewBirthDate(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg tabular-nums"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Batismo
-                  </label>
-                  <select
-                    value={newBaptismStatus}
-                    onChange={(e) =>
-                      setNewBaptismStatus(e.target.value as BaptismStatus)
-                    }
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    <option value="Batizado">Batizado</option>
-                    <option value="Em Preparação">Em Preparação</option>
-                    <option value="Não Batizado">Não Batizado</option>
-                  </select>
-                </div>
-              </div>
+              ) : (
+                selectableRegisteredMembers.map((m) => {
+                  const targetMentor =
+                    pickerTarget.role === 'filhinho'
+                      ? pickerTarget.mentorId || pickerMentorId
+                      : '';
+                  const alreadyInSlot =
+                    pickerTarget.role === 'filhinho'
+                      ? m.role === 'filhinho' && m.mentorId === targetMentor
+                      : m.role === pickerTarget.role;
+                  const currentMentor = m.mentorId
+                    ? members.find((x) => x.id === m.mentorId)
+                    : null;
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nível de Atividade
-                  </label>
-                  <select
-                    value={newActivityLevel}
-                    onChange={(e) =>
-                      setNewActivityLevel(e.target.value as ActivityLevel)
-                    }
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    <option value="Muito Ativo">Muito Ativo</option>
-                    <option value="Ativo">Ativo</option>
-                    <option value="Novo Convertido">Novo Convertido</option>
-                    <option value="Irregular">Irregular</option>
-                    <option value="Inativo">Inativo</option>
-                  </select>
-                </div>
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer pt-4">
-                  <input
-                    type="checkbox"
-                    checked={newIsChurchMember}
-                    onChange={(e) => setNewIsChurchMember(e.target.checked)}
-                    className="w-4 h-4 accent-teal-700"
-                  />
-                  Já é membro oficial da igreja
-                </label>
-              </div>
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      disabled={assigningId !== null || alreadyInSlot}
+                      onClick={() => handleSelectMemberForTarget(m)}
+                      className={`w-full px-5 py-3 text-left flex items-center justify-between gap-3 transition-colors ${
+                        alreadyInSlot
+                          ? 'bg-teal-50/70 cursor-default'
+                          : 'hover:bg-slate-50 cursor-pointer'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <MemberAvatar
+                          name={m.fullName}
+                          photoDataUrl={m.photoDataUrl}
+                          wing={m.wing}
+                          size="md"
+                        />
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900 truncate">
+                            {m.fullName}
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">
+                            {ROLE_LABELS[m.role]} · Ala {m.wing || 'Masculina'}
+                            {currentMentor
+                              ? ` · Mentor: ${currentMentor.fullName}`
+                              : ''}
+                          </div>
+                        </div>
+                      </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Observações
-                </label>
-                <input
-                  type="text"
-                  maxLength={500}
-                  value={newNotes}
-                  onChange={(e) => setNewNotes(e.target.value)}
-                  placeholder="Notas breves sobre discipulado ou acompanhamento..."
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-                />
-              </div>
+                      {alreadyInSlot ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-teal-800 shrink-0">
+                          <Check className="w-4 h-4" />
+                          Já na vaga
+                        </span>
+                      ) : assigningId === m.id ? (
+                        <span className="text-xs font-semibold text-teal-700 shrink-0">
+                          Selecionando...
+                        </span>
+                      ) : (
+                        <span className="px-3 py-1.5 text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg shrink-0">
+                          Selecionar
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setAddOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingNew}
-                  className="px-5 py-2 text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer"
-                >
-                  {savingNew ? 'Salvando...' : 'Adicionar e Gerar Código'}
-                </button>
-              </div>
-            </form>
+            <div className="px-5 py-3 pb-safe bg-slate-50 border-t border-slate-200 text-[11px] text-slate-500 flex items-center justify-between gap-2">
+              <span>
+                Mostrando {selectableRegisteredMembers.length} irmão(s) registrado(s)
+              </span>
+              <span>Cadastros novos em Membros & Acessos</span>
+            </div>
           </div>
         </div>
       )}

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Camera,
   Check,
   CheckCircle2,
   Copy,
@@ -7,6 +8,7 @@ import {
   HeartHandshake,
   Lock,
   Save,
+  Trash2,
   UserCheck,
   X,
 } from 'lucide-react';
@@ -14,7 +16,9 @@ import { formatDatePt } from '../lib/cellAnalytics';
 import {
   fetchMemberPrivateInfo,
   saveOwnMemberFicha,
+  saveOwnMemberPhoto,
 } from '../lib/cellService';
+import { compressProfilePhoto } from '../lib/imageUtils';
 import {
   FIELD_LIMITS,
   ROLE_LABELS,
@@ -23,6 +27,7 @@ import {
   type CellWorkspace,
   type MemberPrivateInfo,
 } from '../types/cell';
+import { MemberAvatar } from './MemberAvatar';
 
 interface MyFichaViewProps {
   cell: CellWorkspace;
@@ -52,8 +57,10 @@ export function MyFichaView({ cell, member, allMembers }: MyFichaViewProps) {
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingPhoto, setSavingPhoto] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Editable self-ficha fields
   const [phone, setPhone] = useState('');
@@ -149,6 +156,44 @@ export function MyFichaView({ cell, member, allMembers }: MyFichaViewProps) {
     syncFormFromData(member, priv);
     setSaveError(null);
     setEditing(false);
+  };
+
+  const handleSelectPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setSavingPhoto(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    try {
+      const compressed = await compressProfilePhoto(file);
+      await saveOwnMemberPhoto(member.id, compressed);
+      setSaveSuccess('Foto da sua ficha atualizada com sucesso.');
+    } catch (err) {
+      setSaveError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível enviar a foto da ficha.',
+      );
+    } finally {
+      setSavingPhoto(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    setSavingPhoto(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    try {
+      await saveOwnMemberPhoto(member.id, '');
+      setSaveSuccess('Foto removida da sua ficha.');
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : 'Não foi possível remover a foto.',
+      );
+    } finally {
+      setSavingPhoto(false);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -259,24 +304,86 @@ export function MyFichaView({ cell, member, allMembers }: MyFichaViewProps) {
         </div>
       )}
 
-      {/* Organogram summary (managed by leadership) */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-        <div>
-          <div className="text-slate-500">Cargo no Organograma</div>
-          <div className="text-sm font-bold text-teal-800 mt-1">
-            {ROLE_LABELS[member.role]}
+      {saveError && !editing && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-700">
+          {saveError}
+        </div>
+      )}
+
+      {/* Photo & Organogram summary */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+          <div className="flex items-center gap-4 min-w-0">
+            <MemberAvatar
+              name={member.fullName}
+              photoDataUrl={member.photoDataUrl}
+              wing={member.wing}
+              size="xl"
+            />
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 truncate">
+                {member.fullName}
+              </h2>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Sua foto aparece na ficha, no organograma e no bate-papo da célula.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleSelectPhoto}
+              className="hidden"
+            />
+            <button
+              type="button"
+              disabled={savingPhoto}
+              onClick={() => photoInputRef.current?.click()}
+              className="min-h-[40px] inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer whitespace-nowrap disabled:opacity-50"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              {savingPhoto
+                ? 'Enviando...'
+                : member.photoDataUrl
+                  ? 'Alterar Foto'
+                  : 'Colocar Foto'}
+            </button>
+            {member.photoDataUrl && (
+              <button
+                type="button"
+                disabled={savingPhoto}
+                onClick={handleRemovePhoto}
+                title="Remover foto da ficha"
+                className="min-h-[40px] inline-flex items-center justify-center gap-1 px-3 py-2 text-xs font-medium text-slate-600 hover:text-red-600 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer whitespace-nowrap disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Remover
+              </button>
+            )}
           </div>
         </div>
-        <div>
-          <div className="text-slate-500">Ala</div>
-          <div className="text-sm font-semibold text-slate-900 mt-1">
-            Ala {member.wing || 'Masculina'}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+          <div>
+            <div className="text-slate-500">Cargo no Organograma</div>
+            <div className="text-sm font-bold text-teal-800 mt-1">
+              {ROLE_LABELS[member.role]}
+            </div>
           </div>
-        </div>
-        <div>
-          <div className="text-slate-500">Mentor / Responsável</div>
-          <div className="text-sm font-semibold text-slate-900 mt-1">
-            {mentor ? mentor.fullName : 'Liderança da Célula'}
+          <div>
+            <div className="text-slate-500">Ala</div>
+            <div className="text-sm font-semibold text-slate-900 mt-1">
+              Ala {member.wing || 'Masculina'}
+            </div>
+          </div>
+          <div>
+            <div className="text-slate-500">Mentor / Responsável</div>
+            <div className="text-sm font-semibold text-slate-900 mt-1">
+              {mentor ? mentor.fullName : 'Liderança da Célula'}
+            </div>
           </div>
         </div>
       </div>

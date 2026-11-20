@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Camera,
   Check,
   Copy,
   Edit3,
@@ -17,9 +18,11 @@ import {
   fetchMemberPrivateInfo,
   saveMemberWithPrivateInfo,
 } from '../lib/cellService';
+import { compressProfilePhoto } from '../lib/imageUtils';
 import {
   MAX_FILHINHOS_PER_MENTOR,
   MAX_TRAINERS_PER_CELL,
+  ROLE_HIERARCHY_ORDER,
   ROLE_LABELS,
   type ActivityLevel,
   type BaptismStatus,
@@ -30,6 +33,7 @@ import {
   type MemberPrivateInfo,
   type RolePermissions,
 } from '../types/cell';
+import { MemberAvatar } from './MemberAvatar';
 
 interface MembersAccessViewProps {
   cell: CellWorkspace;
@@ -99,8 +103,11 @@ export function MembersAccessView({
   const [address, setAddress] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
   const [notes, setNotes] = useState('');
+  const [photoDataUrl, setPhotoDataUrl] = useState('');
+  const [savingPhoto, setSavingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const modalPhotoInputRef = useRef<HTMLInputElement>(null);
 
   const trainersCount = useMemo(
     () => members.filter((m) => m.role === 'lider_treinamento').length,
@@ -138,16 +145,9 @@ export function MembersAccessView({
         return true;
       })
       .sort((a, b) => {
-        const order: Record<CellRole, number> = {
-          lider: 0,
-          lider_treinamento: 1,
-          secretario: 2,
-          anfitriao: 3,
-          filhinho: 4,
-          visitante: 5,
-          membro: 6,
-        };
-        if (order[a.role] !== order[b.role]) return order[a.role] - order[b.role];
+        if (ROLE_HIERARCHY_ORDER[a.role] !== ROLE_HIERARCHY_ORDER[b.role]) {
+          return ROLE_HIERARCHY_ORDER[a.role] - ROLE_HIERARCHY_ORDER[b.role];
+        }
         return a.fullName.localeCompare(b.fullName);
       });
   }, [members, roleFilter, wingFilter, searchTerm]);
@@ -200,6 +200,7 @@ export function MembersAccessView({
     setAddress('');
     setMemberEmail('');
     setNotes('');
+    setPhotoDataUrl('');
     setFormError(null);
     setModalOpen(true);
   };
@@ -214,6 +215,7 @@ export function MembersAccessView({
     setIsChurchMember(m.isChurchMember);
     setBaptismStatus(m.baptismStatus);
     setMemberEmail(m.memberEmail || '');
+    setPhotoDataUrl(m.photoDataUrl || '');
     setFormError(null);
     setModalOpen(true);
 
@@ -223,6 +225,26 @@ export function MembersAccessView({
     setPhone(priv?.phone || '');
     setAddress(priv?.address || '');
     setNotes(priv?.notes || '');
+  };
+
+  const handleModalPhotoChange = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setSavingPhoto(true);
+    setFormError(null);
+    try {
+      const compressed = await compressProfilePhoto(file);
+      setPhotoDataUrl(compressed);
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : 'Erro ao processar foto.',
+      );
+    } finally {
+      setSavingPhoto(false);
+    }
   };
 
   const handleSaveMember = async (e: React.FormEvent) => {
@@ -254,6 +276,7 @@ export function MembersAccessView({
           birthDate,
           baptismDate,
           notes,
+          photoDataUrl,
         },
       });
       if (!editingMember) {
@@ -518,12 +541,20 @@ export function MembersAccessView({
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-slate-900 truncate">
-                          {m.fullName}
-                        </div>
-                        <div className="text-xs text-slate-600 mt-0.5">
-                          {ROLE_LABELS[m.role]} · Ala {m.wing || 'Masculina'}
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <MemberAvatar
+                          name={m.fullName}
+                          photoDataUrl={m.photoDataUrl}
+                          wing={m.wing}
+                          size="sm"
+                        />
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900 truncate">
+                            {m.fullName}
+                          </div>
+                          <div className="text-xs text-slate-600 mt-0.5">
+                            {ROLE_LABELS[m.role]} · Ala {m.wing || 'Masculina'}
+                          </div>
                         </div>
                       </div>
                       {m.memberCode && (
@@ -642,13 +673,23 @@ export function MembersAccessView({
                       }`}
                     >
                       <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-900">
-                          {m.fullName}
-                        </div>
-                        <div className="text-slate-500 mt-0.5">
-                          Ala {m.wing || 'Masculina'}
-                          {m.memberCode ? ` · Cód.: ${m.memberCode}` : ''}
-                          {mentor ? ` · Mentor: ${mentor.fullName}` : ''}
+                        <div className="flex items-center gap-2.5">
+                          <MemberAvatar
+                            name={m.fullName}
+                            photoDataUrl={m.photoDataUrl}
+                            wing={m.wing}
+                            size="sm"
+                          />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900">
+                              {m.fullName}
+                            </div>
+                            <div className="text-slate-500 mt-0.5">
+                              Ala {m.wing || 'Masculina'}
+                              {m.memberCode ? ` · Cód.: ${m.memberCode}` : ''}
+                              {mentor ? ` · Mentor: ${mentor.fullName}` : ''}
+                            </div>
+                          </div>
                         </div>
                       </td>
                       <td className="py-3 px-4 font-medium text-slate-800 whitespace-nowrap">
@@ -723,19 +764,27 @@ export function MembersAccessView({
           {selectedMember ? (
             <div className="space-y-4">
               <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-100">
-                <div>
-                  <div className="text-xs font-medium text-teal-700">
-                    {ROLE_LABELS[selectedMember.role]} · Ala{' '}
-                    {selectedMember.wing || 'Masculina'}
-                  </div>
-                  <h2 className="text-xl font-bold text-slate-900 mt-0.5">
-                    {selectedMember.fullName}
-                  </h2>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {selectedMember.activityLevel} ·{' '}
-                    {selectedMember.isChurchMember
-                      ? 'Membro da Igreja'
-                      : 'Não membro da igreja'}
+                <div className="flex items-center gap-3 min-w-0">
+                  <MemberAvatar
+                    name={selectedMember.fullName}
+                    photoDataUrl={selectedMember.photoDataUrl}
+                    wing={selectedMember.wing}
+                    size="lg"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-teal-700">
+                      {ROLE_LABELS[selectedMember.role]} · Ala{' '}
+                      {selectedMember.wing || 'Masculina'}
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-900 mt-0.5 truncate">
+                      {selectedMember.fullName}
+                    </h2>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {selectedMember.activityLevel} ·{' '}
+                      {selectedMember.isChurchMember
+                        ? 'Membro da Igreja'
+                        : 'Não membro da igreja'}
+                    </div>
                   </div>
                 </div>
                 {selectedMember.memberCode && (
@@ -892,19 +941,27 @@ export function MembersAccessView({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-teal-700">
-                  {ROLE_LABELS[selectedMember.role]} · Ala{' '}
-                  {selectedMember.wing || 'Masculina'}
-                </div>
-                <h2 className="text-lg font-bold text-slate-900 mt-0.5 truncate">
-                  {selectedMember.fullName}
-                </h2>
-                <div className="text-xs text-slate-500 mt-0.5">
-                  {selectedMember.activityLevel} ·{' '}
-                  {selectedMember.isChurchMember
-                    ? 'Membro da Igreja'
-                    : 'Não membro da igreja'}
+              <div className="flex items-center gap-3 min-w-0">
+                <MemberAvatar
+                  name={selectedMember.fullName}
+                  photoDataUrl={selectedMember.photoDataUrl}
+                  wing={selectedMember.wing}
+                  size="md"
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-teal-700">
+                    {ROLE_LABELS[selectedMember.role]} · Ala{' '}
+                    {selectedMember.wing || 'Masculina'}
+                  </div>
+                  <h2 className="text-lg font-bold text-slate-900 mt-0.5 truncate">
+                    {selectedMember.fullName}
+                  </h2>
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    {selectedMember.activityLevel} ·{' '}
+                    {selectedMember.isChurchMember
+                      ? 'Membro da Igreja'
+                      : 'Não membro da igreja'}
+                  </div>
                 </div>
               </div>
               <button
@@ -1168,6 +1225,57 @@ export function MembersAccessView({
             )}
 
             <form onSubmit={handleSaveMember} className="space-y-4">
+              <div className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="flex items-center gap-3 min-w-0">
+                  <MemberAvatar
+                    name={fullName || 'Novo Membro'}
+                    photoDataUrl={photoDataUrl}
+                    wing={wing}
+                    size="lg"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-slate-900">
+                      Foto da Ficha (opcional)
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      O próprio membro também pode adicionar ou alterar na aba Minha Ficha.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    ref={modalPhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleModalPhotoChange}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    disabled={savingPhoto}
+                    onClick={() => modalPhotoInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-teal-800 bg-white border border-teal-200 hover:bg-teal-50 rounded-lg cursor-pointer whitespace-nowrap"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    {savingPhoto
+                      ? 'Processando...'
+                      : photoDataUrl
+                        ? 'Alterar'
+                        : 'Colocar Foto'}
+                  </button>
+                  {photoDataUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setPhotoDataUrl('')}
+                      className="p-2 text-slate-400 hover:text-red-600 rounded-lg cursor-pointer"
+                      title="Remover foto"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">

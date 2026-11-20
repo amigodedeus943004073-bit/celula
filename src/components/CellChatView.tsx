@@ -25,6 +25,7 @@ import { formatDatePt } from '../lib/cellAnalytics';
 import { deleteCellChatMessage, sendCellChatMessage } from '../lib/cellService';
 import {
   FIELD_LIMITS,
+  ROLE_HIERARCHY_ORDER,
   ROLE_LABELS,
   type CellMember,
   type CellMessage,
@@ -33,6 +34,7 @@ import {
   type ChatMediaType,
   type RolePermissions,
 } from '../types/cell';
+import { MemberAvatar } from './MemberAvatar';
 
 interface CellChatViewProps {
   cell: CellWorkspace;
@@ -307,7 +309,18 @@ export function CellChatView({
   }, [sortedMessages, feedFilter, currentMember]);
 
   const sortedMembers = useMemo(
-    () => [...members].sort((a, b) => a.fullName.localeCompare(b.fullName)),
+    () =>
+      [...members].sort((a, b) => {
+        const oA = ROLE_HIERARCHY_ORDER[a.role] ?? 99;
+        const oB = ROLE_HIERARCHY_ORDER[b.role] ?? 99;
+        if (oA !== oB) return oA - oB;
+        return a.fullName.localeCompare(b.fullName);
+      }),
+    [members],
+  );
+
+  const memberById = useMemo(
+    () => new Map(members.map((m) => [m.id, m])),
     [members],
   );
 
@@ -895,7 +908,16 @@ export function CellChatView({
                       >
                         {/* Sender header */}
                         <div className="flex items-center justify-between gap-3 mb-1">
-                          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <MemberAvatar
+                              name={msg.senderName}
+                              photoDataUrl={
+                                msg.senderMemberId
+                                  ? memberById.get(msg.senderMemberId)?.photoDataUrl
+                                  : undefined
+                              }
+                              size="xs"
+                            />
                             <span
                               className={`text-xs font-bold truncate ${
                                 isOwn ? 'text-teal-50' : 'text-slate-900'
@@ -1199,10 +1221,17 @@ export function CellChatView({
                           : 'bg-slate-50/70 border-slate-200 text-slate-800 hover:bg-slate-100'
                       }`}
                     >
-                      <div className="min-w-0">
-                        <div className="truncate">{m.fullName}</div>
-                        <div className="text-[10px] text-slate-500 truncate">
-                          {ROLE_LABELS[m.role]} · Ala {m.wing || 'Masculina'}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <MemberAvatar
+                          name={m.fullName}
+                          photoDataUrl={m.photoDataUrl}
+                          size="xs"
+                        />
+                        <div className="min-w-0">
+                          <div className="truncate">{m.fullName}</div>
+                          <div className="text-[10px] text-slate-500 truncate">
+                            {ROLE_LABELS[m.role]} · Ala {m.wing || 'Masculina'}
+                          </div>
                         </div>
                       </div>
                       {picked && (
@@ -1538,6 +1567,11 @@ export function CellChatView({
                           className="w-4 h-4 accent-teal-700 rounded shrink-0"
                         />
                       )}
+                      <MemberAvatar
+                        name={m.fullName}
+                        photoDataUrl={m.photoDataUrl}
+                        size="xs"
+                      />
                       <div className="min-w-0">
                         <div className="font-semibold text-slate-900 truncate">
                           {m.fullName}

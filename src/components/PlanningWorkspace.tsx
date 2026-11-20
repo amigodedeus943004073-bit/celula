@@ -2,12 +2,18 @@ import React, { useMemo, useState } from 'react';
 import {
   BarChart3,
   CalendarDays,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Copy,
   Edit3,
+  FileSpreadsheet,
+  FileText,
   Plus,
+  Printer,
+  Share2,
   Sparkles,
   Trash2,
   X,
@@ -23,6 +29,7 @@ import {
 } from '../lib/cellAnalytics';
 import { deleteMonthlyPlan, saveMonthlyPlan } from '../lib/cellService';
 import {
+  ROLE_HIERARCHY_ORDER,
   ROLE_LABELS,
   type CellMember,
   type CellRole,
@@ -33,6 +40,7 @@ import {
   type PlanStatus,
   type RolePermissions,
 } from '../types/cell';
+import { MemberAvatar } from './MemberAvatar';
 import { MemberPickerField } from './MemberPickerField';
 import { MemberResponsibilitySearch } from './MemberResponsibilitySearch';
 
@@ -102,9 +110,26 @@ export function PlanningWorkspace({
   const [formStatus, setFormStatus] = useState<PlanStatus>('Planejada');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+
+  const memberById = useMemo(
+    () => new Map(members.map((m) => [m.id, m])),
+    [members],
+  );
 
   const memberNames = useMemo(
-    () => members.map((m) => m.fullName).sort((a, b) => a.localeCompare(b)),
+    () =>
+      [...members]
+        .sort((a, b) => {
+          const orderDiff =
+            (ROLE_HIERARCHY_ORDER[a.role] ?? 99) -
+            (ROLE_HIERARCHY_ORDER[b.role] ?? 99);
+          if (orderDiff !== 0) return orderDiff;
+          return a.fullName.localeCompare(b.fullName);
+        })
+        .map((m) => m.fullName),
     [members],
   );
 
@@ -142,6 +167,15 @@ export function PlanningWorkspace({
     () => computeProgressMetrics(selectedMonth, plans, reports, members),
     [selectedMonth, plans, reports, members],
   );
+
+  const sortedEngagementRows = useMemo(() => {
+    return [...progressMetrics.memberEngagement].sort((a, b) => {
+      const oA = ROLE_HIERARCHY_ORDER[a.role as CellRole] ?? 99;
+      const oB = ROLE_HIERARCHY_ORDER[b.role as CellRole] ?? 99;
+      if (oA !== oB) return oA - oB;
+      return a.fullName.localeCompare(b.fullName);
+    });
+  }, [progressMetrics.memberEngagement]);
 
   // Calendar matrix for selectedMonth
   const calendarDays = useMemo(() => {
@@ -272,8 +306,146 @@ export function PlanningWorkspace({
     }
   };
 
+  const buildShareText = (forWhatsApp = false): string => {
+    const monthLabel = formatMonthLabelPt(selectedMonth);
+    const bold = (s: string) => (forWhatsApp ? `*${s}*` : s);
+    const lines: string[] = [
+      bold(`Planificação Mensal — ${cell.name}`),
+      `Mês: ${monthLabel}`,
+      `Reunião habitual: ${cell.meetingDay} às ${cell.meetingTime}${cell.location ? ` · ${cell.location}` : ''}`,
+      '',
+    ];
+
+    if (monthPlans.length === 0) {
+      lines.push('Nenhuma programação cadastrada para este mês.');
+    } else {
+      monthPlans.forEach((plan, index) => {
+        lines.push(
+          `${index + 1}. ${bold(`${formatDatePt(plan.date)} (${plan.time})`)} — ${plan.eventType || 'Reunião de Célula'} [${plan.status}]`,
+        );
+        lines.push(`   1. Lição/Atividade: ${plan.lessonTitle}${plan.lessonReference ? ` (${plan.lessonReference})` : ''}`);
+        lines.push(`   2. Dirigente: ${plan.responsibleName || 'A definir'}`);
+        lines.push(`   3. Louvor: ${plan.worshipName || 'A definir'}`);
+        lines.push(`   4. Quebra-gelo: ${plan.icebreakerName || 'A definir'}`);
+        lines.push(`   5. Lanche: ${plan.snackName || 'Pendente'}`);
+        if (plan.preacherName) lines.push(`   Ministração: ${plan.preacherName}`);
+        if (plan.prayerName) lines.push(`   Oração: ${plan.prayerName}`);
+        if (plan.location) lines.push(`   Local: ${plan.location}`);
+        if (plan.notes) lines.push(`   Obs.: ${plan.notes}`);
+        lines.push('');
+      });
+    }
+    return lines.join('\n').trim();
+  };
+
+  const triggerDownload = (filename: string, content: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadCsv = () => {
+    const escapeCsv = (val: string) => {
+      const clean = (val || '').replace(/"/g, '""');
+      return `"${clean}"`;
+    };
+    const headers = [
+      'Data',
+      'Horário',
+      'Tipo',
+      '1. Lição / Atividade',
+      'Referência Bíblica',
+      '2. Dirigente',
+      '3. Louvor',
+      '4. Quebra-gelo',
+      '5. Lanche',
+      'Ministração',
+      'Oração',
+      'Local',
+      'Status',
+      'Observações',
+    ];
+    const rows = monthPlans.map((p) =>
+      [
+        formatDatePt(p.date),
+        p.time,
+        p.eventType || 'Reunião de Célula',
+        p.lessonTitle,
+        p.lessonReference || '',
+        p.responsibleName || '',
+        p.worshipName || '',
+        p.icebreakerName || '',
+        p.snackName || 'Pendente',
+        p.preacherName || '',
+        p.prayerName || '',
+        p.location || '',
+        p.status,
+        p.notes || '',
+      ]
+        .map(escapeCsv)
+        .join(';'),
+    );
+    const csvContent = '\uFEFF' + [headers.map(escapeCsv).join(';'), ...rows].join('\r\n');
+    triggerDownload(
+      `planificacao-${selectedMonth}.csv`,
+      csvContent,
+      'text/csv;charset=utf-8;',
+    );
+    setShareFeedback('Planilha CSV baixada!');
+  };
+
+  const handleDownloadTxt = () => {
+    triggerDownload(
+      `cronograma-${selectedMonth}.txt`,
+      buildShareText(false),
+      'text/plain;charset=utf-8;',
+    );
+    setShareFeedback('Arquivo de texto salvo!');
+  };
+
+  const handleCopyWhatsApp = async () => {
+    try {
+      await navigator.clipboard.writeText(buildShareText(true));
+      setCopiedShare(true);
+      setShareFeedback('Texto copiado! Cole no WhatsApp da célula.');
+      setTimeout(() => setCopiedShare(false), 2500);
+    } catch {
+      setShareFeedback('Não foi possível copiar automaticamente. Use Imprimir ou Baixar TXT.');
+    }
+  };
+
+  const handleWebShare = async () => {
+    const text = buildShareText(true);
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: `Planificação ${formatMonthLabelPt(selectedMonth)} — ${cell.name}`,
+          text,
+        });
+        return;
+      } catch {
+        // User canceled or share unsupported; fallback to copy
+      }
+    }
+    await handleCopyWhatsApp();
+  };
+
+  const handlePrintSchedule = () => {
+    setExportModalOpen(false);
+    setTimeout(() => {
+      window.print();
+    }, 120);
+  };
+
   return (
-    <div className="space-y-6">
+    <div>
+      <div className="space-y-6 print:hidden">
       {/* Header & Month Navigator */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
@@ -307,6 +479,18 @@ export function PlanningWorkspace({
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShareFeedback(null);
+              setExportModalOpen(true);
+            }}
+            className="min-h-[42px] inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <Printer className="w-4 h-4 text-teal-700 shrink-0" />
+            Exportar / Imprimir
+          </button>
 
           {permissions.canEditMonthlyPlan && (
             <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2">
@@ -1350,31 +1534,41 @@ export function PlanningWorkspace({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
-                  {progressMetrics.memberEngagement.map((row) => (
-                    <tr key={row.memberId} className="hover:bg-slate-50/70">
-                      <td className="py-3 px-4 font-semibold text-slate-900">
-                        {row.fullName}
-                      </td>
-                      <td className="py-3 px-4 text-slate-600">
-                        {ROLE_LABELS[row.role as CellRole] || row.role}
-                      </td>
-                      <td className="py-3 px-4 text-slate-600">
-                        {row.activityLevel}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-800">
-                        {row.attendedCount} / {row.totalMeetings}
-                      </td>
-                      <td
-                        className={`py-3 px-4 text-right font-mono tabular-nums font-semibold ${
-                          row.totalMeetings > 0 && row.rate < 50
-                            ? 'text-red-700'
-                            : 'text-emerald-700'
-                        }`}
-                      >
-                        {row.rate}%
-                      </td>
-                    </tr>
-                  ))}
+                  {sortedEngagementRows.map((row) => {
+                    const matchedMember = memberById.get(row.memberId);
+                    return (
+                      <tr key={row.memberId} className="hover:bg-slate-50/70">
+                        <td className="py-3 px-4 font-semibold text-slate-900">
+                          <div className="flex items-center gap-2.5">
+                            <MemberAvatar
+                              name={row.fullName}
+                              photoDataUrl={matchedMember?.photoDataUrl}
+                              size="xs"
+                            />
+                            <span className="truncate">{row.fullName}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-slate-600">
+                          {ROLE_LABELS[row.role as CellRole] || row.role}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600">
+                          {row.activityLevel}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-800">
+                          {row.attendedCount} / {row.totalMeetings}
+                        </td>
+                        <td
+                          className={`py-3 px-4 text-right font-mono tabular-nums font-semibold ${
+                            row.totalMeetings > 0 && row.rate < 50
+                              ? 'text-red-700'
+                              : 'text-emerald-700'
+                          }`}
+                        >
+                          {row.rate}%
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1603,6 +1797,212 @@ export function PlanningWorkspace({
           </div>
         </div>
       )}
+
+      {/* Export / Save / Print / Share Modal */}
+      {exportModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white border border-slate-200 rounded-t-2xl sm:rounded-xl w-full max-w-lg p-5 sm:p-6 pb-safe shadow-xl space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">
+                  Exportar e Compartilhar Planificação
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
+                  {cell.name} · {formatMonthLabelPt(selectedMonth)} ({monthPlans.length} evento(s))
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExportModalOpen(false)}
+                className="min-h-[38px] min-w-[38px] flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+                aria-label="Fechar janela de exportação"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {shareFeedback && (
+              <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-medium text-emerald-800">
+                {shareFeedback}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={handlePrintSchedule}
+                className="flex items-start gap-3 p-3.5 text-left border border-slate-200 hover:border-teal-600 hover:bg-teal-50/40 rounded-xl transition-colors cursor-pointer"
+              >
+                <Printer className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-xs font-bold text-slate-900">
+                    Imprimir / Salvar PDF
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    Layout limpo em A4 paisagem pronto para imprimir ou guardar em PDF.
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadCsv}
+                className="flex items-start gap-3 p-3.5 text-left border border-slate-200 hover:border-teal-600 hover:bg-teal-50/40 rounded-xl transition-colors cursor-pointer"
+              >
+                <FileSpreadsheet className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-xs font-bold text-slate-900">
+                    Baixar Planilha (.csv)
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    Abre direto no Excel ou Google Planilhas com acentuação preservada.
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadTxt}
+                className="flex items-start gap-3 p-3.5 text-left border border-slate-200 hover:border-teal-600 hover:bg-teal-50/40 rounded-xl transition-colors cursor-pointer"
+              >
+                <FileText className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-xs font-bold text-slate-900">
+                    Baixar Cronograma (.txt)
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    Arquivo leve com todas as datas, lições e escalas do mês.
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyWhatsApp}
+                className="flex items-start gap-3 p-3.5 text-left border border-slate-200 hover:border-teal-600 hover:bg-teal-50/40 rounded-xl transition-colors cursor-pointer"
+              >
+                {copiedShare ? (
+                  <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <Copy className="w-5 h-5 text-teal-700 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <div className="text-xs font-bold text-slate-900">
+                    {copiedShare ? 'Copiado!' : 'Copiar para WhatsApp'}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    Copia o cronograma formatado para colar no grupo da célula.
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleWebShare}
+                className="min-h-[40px] inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg cursor-pointer whitespace-nowrap"
+              >
+                <Share2 className="w-4 h-4" />
+                Compartilhar Direto
+              </button>
+              <button
+                type="button"
+                onClick={() => setExportModalOpen(false)}
+                className="min-h-[40px] px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
+
+      {/* Printable A4 Schedule (Visible only during print / PDF save) */}
+      <div className="hidden print:block space-y-4 text-slate-900">
+        <div className="border-b-2 border-slate-800 pb-3 flex items-end justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">
+              Planificação Mensal — {cell.name}
+            </h1>
+            <p className="text-xs text-slate-600 mt-0.5">
+              {formatMonthLabelPt(selectedMonth)} · Reunião habitual: {cell.meetingDay} às {cell.meetingTime}
+              {cell.location ? ` · Local: ${cell.location}` : ''}
+            </p>
+          </div>
+          <div className="text-xs text-slate-500 tabular-nums text-right">
+            <div>Total de eventos: {monthPlans.length}</div>
+            <div>Emitido em {formatDatePt(today)}</div>
+          </div>
+        </div>
+
+        {monthPlans.length === 0 ? (
+          <p className="text-sm text-slate-600 py-6">
+            Nenhuma programação registrada para {formatMonthLabelPt(selectedMonth)}.
+          </p>
+        ) : (
+          <table className="w-full border-collapse text-[11px]">
+            <thead>
+              <tr className="bg-slate-100 border border-slate-300 text-left font-bold text-slate-800">
+                <th className="py-2 px-2 border border-slate-300">Data / Hora</th>
+                <th className="py-2 px-2 border border-slate-300">Tipo</th>
+                <th className="py-2 px-2 border border-slate-300">1. Lição / Atividade</th>
+                <th className="py-2 px-2 border border-slate-300">2. Dirigente</th>
+                <th className="py-2 px-2 border border-slate-300">3. Louvor</th>
+                <th className="py-2 px-2 border border-slate-300">4. Quebra-gelo</th>
+                <th className="py-2 px-2 border border-slate-300">5. Lanche</th>
+                <th className="py-2 px-2 border border-slate-300">Ministração / Oração</th>
+                <th className="py-2 px-2 border border-slate-300">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthPlans.map((plan) => (
+                <tr key={plan.id} className="border border-slate-300 align-top">
+                  <td className="py-2 px-2 border border-slate-300 font-mono tabular-nums whitespace-nowrap">
+                    {formatDatePt(plan.date)} · {plan.time}
+                  </td>
+                  <td className="py-2 px-2 border border-slate-300">
+                    {plan.eventType || 'Reunião de Célula'}
+                  </td>
+                  <td className="py-2 px-2 border border-slate-300">
+                    <div className="font-semibold">{plan.lessonTitle}</div>
+                    {plan.lessonReference && (
+                      <div className="text-[10px] text-slate-600">
+                        {plan.lessonReference}
+                      </div>
+                    )}
+                    {plan.location && (
+                      <div className="text-[10px] text-slate-600">
+                        Local: {plan.location}
+                      </div>
+                    )}
+                  </td>
+                  <td className="py-2 px-2 border border-slate-300 font-semibold">
+                    {plan.responsibleName || '—'}
+                  </td>
+                  <td className="py-2 px-2 border border-slate-300">
+                    {plan.worshipName || '—'}
+                  </td>
+                  <td className="py-2 px-2 border border-slate-300">
+                    {plan.icebreakerName || '—'}
+                  </td>
+                  <td className="py-2 px-2 border border-slate-300">
+                    {plan.snackName || 'Pendente'}
+                  </td>
+                  <td className="py-2 px-2 border border-slate-300">
+                    <div>Min.: {plan.preacherName || '—'}</div>
+                    <div>Or.: {plan.prayerName || '—'}</div>
+                  </td>
+                  <td className="py-2 px-2 border border-slate-300 font-semibold whitespace-nowrap">
+                    {plan.status}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
